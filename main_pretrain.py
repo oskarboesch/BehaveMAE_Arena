@@ -32,6 +32,7 @@ from torch.utils.tensorboard import SummaryWriter
 from datasets.hbabel import hBABELDataset
 from datasets.mabe22_mice import MABeMouseDataset
 from datasets.shot7m2 import SHOT7M2Dataset
+from datasets.arena_dataset import ArenaDataset
 from engine_pretrain import train_one_epoch
 from models import models_defs
 from util import misc as misc
@@ -309,9 +310,28 @@ def main(args):
             augmentations=None,
             centeralign=args.centeralign,
         )
+    elif args.dataset.lower() == "arena":
+        print("Arena Dataset")
+        dataset_train = ArenaDataset(
+            mode="pretrain",
+            path_to_data_dir=args.path_to_data_dir,
+            num_frames=args.num_frames,
+            sliding_window=args.sliding_window,
+            sampling_rate=args.sampling_rate,
+            augmentations=args.data_augment,
+            include_testdata=args.include_test_data,
+        )
+        dataset_test = ArenaDataset(
+            mode="test",
+            path_to_data_dir=args.path_to_data_dir,
+            num_frames=args.num_frames,
+            sliding_window=args.sliding_window,
+            sampling_rate=args.sampling_rate,
+            augmentations=None,
+        )
     else:
         print(f"Dataset {args.dataset} unknown...")
-
+    print(f"Data loaded: train samples: {len(dataset_train)}, test samples: {len(dataset_test)}")
     if args.distributed:
         num_tasks = misc.get_world_size()
         global_rank = misc.get_rank()
@@ -398,7 +418,7 @@ def main(args):
         beta = (0.9, 0.95)
     else:
         beta = args.beta
-    optimizer = torch.optim._multi_tensor.AdamW(
+    optimizer = torch.optim.AdamW(
         param_groups,
         lr=args.lr,
         betas=beta,

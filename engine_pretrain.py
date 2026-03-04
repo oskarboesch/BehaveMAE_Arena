@@ -85,7 +85,7 @@ def train_one_epoch(
 
         mask_ratio = args.mask_ratio
 
-        with torch.cuda.amp.autocast(enabled=not fp32):
+        with torch.amp.autocast('cuda', enabled=not fp32):
             loss, _, _, _, _ = model(
                 samples,
                 targets,

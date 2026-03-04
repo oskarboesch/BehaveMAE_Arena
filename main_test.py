@@ -180,7 +180,7 @@ def load_model(args):
     chkpt = misc.get_last_checkpoint(args)
 
     with pathmgr.open(chkpt, "rb") as f:
-        checkpoint = torch.load(f, map_location="cpu")
+        checkpoint = torch.load(f, map_location="cpu", weights_only=False)
 
     print("Load pre-trained checkpoint from: %s" % args.output_dir)
     if "model" in checkpoint.keys():
@@ -276,9 +276,12 @@ def extract_hierarchical_embeddings(args):
     if args.dataset == "shot7m2":
         submission_clips = np.load(args.path_to_data_dir, allow_pickle=True).item()
         submission_clips["sequences"] = submission_clips["sequences"]["keypoints"]
+        submission_clips["sequences"] = dict(list(submission_clips["sequences"].items())[: 2])  # for quick tests, remove for full evaluation
         num_animals = 1
         max_frame_emb_size = 64
-        nr_test_frames = 2720 * 1800
+        nr_test_frames = sum(len(seq) for seq in submission_clips["sequences"].values())
+        print(f"number of test frames: {nr_test_frames}")
+        print(f"number of test sequences: {len(submission_clips['sequences'])}")
     elif args.dataset == "hbabel":
         submission_clips = {"sequences": dict()}
         val = joblib.load(
@@ -453,7 +456,9 @@ def extract_hierarchical_embeddings(args):
                 fused_embeds = []
             for samples in data_loader:
                 samples = samples[:, None, :].to(device, non_blocking=True)
-                with torch.cuda.amp.autocast(enabled=not args.fp32):
+                use_amp = not bool(args.fp32)
+
+                with torch.amp.autocast("cuda", enabled=use_amp):
                     _, preds = model(samples, return_intermediates=True)
                     for i in range(len(preds)):
                         embeds[i + 1].append(preds[i])
