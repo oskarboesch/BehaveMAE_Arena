@@ -6,7 +6,10 @@ import torch
 
 from .pose_traj_dataset import BasePoseTrajDataset
 from .augmentations import GaussianNoise, Rotation, Reflect
+from matplotlib.collections import LineCollection
 
+
+import matplotlib.pyplot as plt
 
 class ArenaDataset(BasePoseTrajDataset):
     """
@@ -14,7 +17,7 @@ class ArenaDataset(BasePoseTrajDataset):
     """
 
     DEFAULT_FRAME_RATE = 50 # To check
-    DEFAULT_GRID_SIZE = 250
+    DEFAULT_GRID_SIZE = 500
     NUM_KEYPOINTS = 27
     KPTS_DIMENSIONS = 2
     NUM_INDIVIDUALS = 1
@@ -215,3 +218,99 @@ class ArenaDataset(BasePoseTrajDataset):
                             keypoint_series[not_nans],
                         )
         return sequence
+    
+def plot_kp_in_2d(keypoints, frame_idxs=np.arange(1,50,1), title=None):
+    """Plot the keypoints of a specific frame in 2D with skeleton connections."""
+    # Define skeleton edges connecting body parts
+    skeleton_edges = [
+        # Head and ears
+        ("left_ear", "head_midpoint"),
+        ("right_ear", "head_midpoint"),
+        ("head_midpoint", "nose"),
+        
+        # Spine
+        ("nose", "neck"),
+        ("neck", "mid_back"),
+        ("mid_back", "tail_base"),
+        
+        # Left side
+        ("neck", "left_shoulder"),
+        ("left_shoulder", "left_midside"),
+        ("left_midside", "left_hip"),
+        
+        # Right side
+        ("neck", "right_shoulder"),
+        ("right_shoulder", "right_midside"),
+        ("right_midside", "right_hip"),
+        
+        # Tail
+        ("tail_base", "tail1"),
+        ("tail1", "tail2"),
+        ("tail2", "tail3"),
+        ("tail3", "tail4"),
+        ("tail4", "tail5"),
+        ("tail5", "tail_end"),
+        
+        # Ears to eyes
+        ("left_ear", "left_eye"),
+        ("right_ear", "right_eye"),
+        ("left_ear_tip", "left_ear"),
+        ("right_ear_tip", "right_ear"),
+    ]
+    
+    # Map body part names to indices
+    body_part_to_idx = ArenaDataset.BODY_PART_2_INDEX
+    
+    plt.figure(figsize=(8, 8))
+    for i, frame_idx in enumerate(frame_idxs):
+        # Plot skeleton connections
+        for part1, part2 in skeleton_edges:
+            if part1 in body_part_to_idx and part2 in body_part_to_idx:
+                idx1 = body_part_to_idx[part1]
+                idx2 = body_part_to_idx[part2]
+                x = [keypoints[frame_idx, idx1, 0], keypoints[frame_idx, idx2, 0]]
+                y = [keypoints[frame_idx, idx1, 1], keypoints[frame_idx, idx2, 1]]
+                plt.plot(x, y, 'gray', linewidth=1, alpha=0.6/(3*i+1))
+        
+        # Plot keypoints on top
+        plt.scatter(keypoints[frame_idx, :, 0], keypoints[frame_idx, :, 1], c='blue', s=30, zorder=5, alpha=1/(3*i+1))
+    
+    plt.title(title if title else f"Frame {frame_idx}")
+    plt.xlabel("X")
+    plt.ylabel("Y")
+    plt.xlim(0, 500)
+    plt.ylim(0, 500)
+    plt.gca().set_aspect('equal', adjustable='box')
+    plt.grid()
+    plt.show()
+    
+
+def plot_center_trajectory(keypoints, title=None):
+    """Plot the trajectory of the center keypoint over time with a color gradient per frame."""
+    
+    center_idx = ArenaDataset.BODY_PART_2_INDEX["mouse_center"]
+
+    x = keypoints[:, center_idx, 0]
+    y = keypoints[:, center_idx, 1]
+
+    points = np.array([x, y]).T.reshape(-1, 1, 2)
+    segments = np.concatenate([points[:-1], points[1:]], axis=1)
+
+    cmap = plt.cm.viridis
+    norm = plt.Normalize(0, len(x))
+
+    lc = LineCollection(segments, cmap=cmap, norm=norm)
+    lc.set_array(np.arange(len(x)))
+    lc.set_linewidth(2)
+
+    fig, ax = plt.subplots(figsize=(8, 8))
+    ax.add_collection(lc)
+
+    ax.set_xlim(0, 500)
+    ax.set_ylim(0, 500)
+    ax.set_aspect('equal', adjustable='box')
+    ax.set_xlabel("X")
+    ax.set_ylabel("Y")
+    ax.set_title(title if title else "Trajectory of Mouse Center")
+    ax.grid()
+    plt.show()
