@@ -8,7 +8,7 @@
 # https://www.biorxiv.org/content/10.1101/2024.08.06.606796v1
 # --------------------------------------------------------
 
-import __future__
+from __future__ import annotations
 
 import random
 
