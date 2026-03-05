@@ -50,6 +50,10 @@ common_args="--dataset arena \
 mkdir -p logs/arena
 mkdir -p outputs/arena/experiment1
 
+# activate behavemae conda environment
+source ~/miniconda3/etc/profile.d/conda.sh
+conda activate behavemae
+
 # Run training
 OMP_NUM_THREADS=1 torchrun --nproc_per_node=$GPUS --node_rank 0 --master_addr=127.0.0.1 --master_port=2999 \
     run_pretrain.py --distributed $common_args
