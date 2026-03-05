@@ -31,8 +31,8 @@ common_args="--dataset arena \
     --checkpoint_period 20 \
     --norm_loss False \
     --seed 0 \
-    --output_dir outputs/arena/experiment1 \
-    --log_dir logs/arena/experiment1"
+    --output_dir outputs/arena/experiment2 \
+    --log_dir logs/arena/experiment2"
 
 
 if [[ $GPUS == 1 ]]; then
