@@ -19,7 +19,7 @@ class ArenaDataset(BasePoseTrajDataset):
     KPTS_DIMENSIONS = 2
     NUM_INDIVIDUALS = 1
     KEYFRAME_SHAPE = (NUM_INDIVIDUALS, NUM_KEYPOINTS, KPTS_DIMENSIONS)
-    SAMPLE_LEN = 1800
+    DEFAULT_NUM_TESTING_POINTS = 10
 
     STR_BODY_PARTS = [
         "nose",
@@ -198,3 +198,20 @@ class ArenaDataset(BasePoseTrajDataset):
         ]
         inputs = self.prepare_subsequence_sample(subsequence)
         return inputs, []
+    
+
+    def interpolate_nans(sequence):
+        """Interpolate NaN values in the sequence using linear interpolation."""
+        for i in range(sequence.shape[1]):  # Iterate over keypoints
+            for j in range(sequence.shape[2]):  # Iterate over dimensions
+                keypoint_series = sequence[:, i, j]
+                nans = np.isnan(keypoint_series)
+                if np.any(nans):
+                    not_nans = ~nans
+                    if np.sum(not_nans) > 1:  # Need at least two points to interpolate
+                        keypoint_series[nans] = np.interp(
+                            np.flatnonzero(nans),
+                            np.flatnonzero(not_nans),
+                            keypoint_series[not_nans],
+                        )
+        return sequence
