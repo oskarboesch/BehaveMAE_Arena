@@ -13,17 +13,21 @@ from sklearn.metrics import silhouette_score
 from scipy.stats import spearmanr
 import seaborn as sns
 
+from tqdm import tqdm
 
 ## CLUSTER PLOTS
 
 def scatter_layer_embeddings(
     list_of_embeddings: list,
     list_of_colors: list = None,
+    keypoints=None,
     figsize=(12, 4),
     title=None,
     d3=False,
     interactive=False,
-    colortime=False
+    colortime=False,
+    center_idx=9,
+    colorspeed=False
 ):
     """
     Plots embeddings for each layer using optional per-point colors.
@@ -36,6 +40,7 @@ def scatter_layer_embeddings(
         d3: plot 3D if True
         interactive: use plotly for 3D visualization if True
         colortime: if True, color points by frame index (time). Overrides list_of_colors.
+        colorspeed: if True, color points by speed. Overrides list_of_colors.
     """
     num_layers = len(list_of_embeddings)
 
@@ -49,6 +54,17 @@ def scatter_layer_embeddings(
         if colortime:
             # Create time-based colors (frame index)
             frame_colors = plt.cm.viridis(np.linspace(0, 1, len(embeddings)))
+
+        elif colorspeed:
+            speed = compute_speed(keypoints, center_idx)
+            # Choose a colormap you like, e.g., 'plasma', 'coolwarm', 'cividis', etc.
+            cmap = plt.cm.seismic
+            
+            # normalize speed to [0,1] for colormap
+            speed = (speed - np.min(speed)) / (np.max(speed) - np.min(speed) + 1e-8)
+
+            # Map speeds to RGBA colors
+            frame_colors = cmap(speed)
         elif list_of_colors is not None:
             frame_colors = list_of_colors[i]
         else:
@@ -64,7 +80,7 @@ def scatter_layer_embeddings(
                         mode='markers',
                         marker=dict(
                             size=1,
-                            color=frame_colors if colortime else list_of_colors[i],  # (N,4) RGBA works here
+                            color=frame_colors 
                         )
                     )
                 )
@@ -89,6 +105,10 @@ def scatter_layer_embeddings(
                     sc = ax.scatter(embeddings[:, 0], embeddings[:, 1], c=np.arange(len(embeddings)), cmap="viridis", alpha=0.5, s=1)
                     if i == num_layers - 1:
                         plt.colorbar(sc, ax=ax, label="Frame Index")
+                elif colorspeed:
+                    sc = ax.scatter(embeddings[:, 0], embeddings[:, 1], c=speed, cmap="seismic", alpha=0.5, s=1)
+                    if i == num_layers - 1:
+                        plt.colorbar(sc, ax=ax, label="Speed")
                 else:
                     ax.scatter(embeddings[:, 0], embeddings[:, 1], c=frame_colors, alpha=0.5, s=1)
             else:
@@ -494,7 +514,7 @@ def plot_k_means_silhouettes(list_of_embeddings, k_range=(2,11), random_state=42
     silhouette_scores_layer_1 = []
     silhouette_scores_layer_2 = []
 
-    for k in K_range:
+    for k in tqdm(K_range):
         kmeans = KMeans(n_clusters=k, random_state=random_state)
         labels_0 = kmeans.fit_predict(list_of_embeddings[0])
         labels_1 = kmeans.fit_predict(list_of_embeddings[1])
@@ -524,7 +544,7 @@ def plot_dbscan_silhouettes(list_of_embeddings, eps_range=(0.5, 5.0), min_sample
     silhouette_scores_layer_1 = []
     silhouette_scores_layer_2 = []
 
-    for eps in eps_values:
+    for eps in tqdm(eps_values):
         dbscan = DBSCAN(eps=eps, min_samples=min_samples)
         labels_0 = dbscan.fit_predict(list_of_embeddings[0])
         labels_1 = dbscan.fit_predict(list_of_embeddings[1])
@@ -698,3 +718,23 @@ def fft_layer_embeddings(list_of_embeddings, dim=0, logscale=False):
     plt.legend()
     plt.tight_layout()
     plt.show()
+
+
+def compute_speed(keypoints, center_idx):
+    """Compute instant speed of the center keypoint from keypoints array."""
+
+    center_data = keypoints[:, center_idx] 
+
+    # compute euclidean distance between consecutive frames for the center keypoint
+    diff = np.linalg.norm(np.diff(center_data, axis=0), axis=1)
+
+    # starting speed is 0
+    diff = np.insert(diff, 0, 0)
+
+    # interpolate nans if any
+    if np.isnan(diff).any():
+        nans = np.isnan(diff)
+        not_nans = ~nans
+        diff[nans] = np.interp(np.flatnonzero(nans), np.flatnonzero(not_nans), diff[not_nans])
+
+    return diff
