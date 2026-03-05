@@ -30,6 +30,7 @@ from tqdm import tqdm
 import util.misc as misc
 from datasets import hbabel as hbabel
 from datasets import mabe22_mice as mice
+from datasets import arena_dataset as arena
 from datasets import shot7m2 as shot7m2
 from models import models_defs
 from models.hbehave_mae import apply_fusion_head
@@ -280,8 +281,6 @@ def extract_hierarchical_embeddings(args):
         num_animals = 1
         max_frame_emb_size = 64
         nr_test_frames = sum(len(seq) for seq in submission_clips["sequences"].values())
-        print(f"number of test frames: {nr_test_frames}")
-        print(f"number of test sequences: {len(submission_clips['sequences'])}")
     elif args.dataset == "hbabel":
         submission_clips = {"sequences": dict()}
         val = joblib.load(
@@ -326,6 +325,15 @@ def extract_hierarchical_embeddings(args):
             mice.MABeMouseDataset.DEFAULT_NUM_TESTING_POINTS
             * mice.MABeMouseDataset.SAMPLE_LEN
         )
+    elif args.dataset == "arena":
+        submission_clips = np.load(args.path_to_data_dir, allow_pickle=True)['keypoints'].item()
+        submission_clips = {"sequences": submission_clips}
+        num_animals = arena.ArenaDataset.NUM_INDIVIDUALS
+        normalize = arena.ArenaDataset._normalize
+        fill_holes = arena.ArenaDataset.fill_holes
+        grid_size = arena.ArenaDataset.DEFAULT_GRID_SIZE
+        max_frame_emb_size = 64
+        nr_test_frames = (sum(len(seq) for seq in submission_clips["sequences"].values())) 
     else:
         raise NotImplementedError(
             f"Your specified dataset -- {args.dataset} -- is not supported..."
@@ -393,6 +401,8 @@ def extract_hierarchical_embeddings(args):
                 features = hbabel.hBABELDataset.ntu_pre_normalization(features)
                 features = features.transpose(1, 2, 3, 0).squeeze()
             vec_seq = features
+        elif args.dataset == "arena":
+            vec_seq = arena.ArenaDataset.interpolate_nans(sequence)
         else:
             vec_seq = sequence["keypoints"]
 
