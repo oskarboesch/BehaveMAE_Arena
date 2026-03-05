@@ -16,7 +16,7 @@ class ArenaDataset(BasePoseTrajDataset):
     Open-field wandering of single mice in an arena.
     """
 
-    DEFAULT_FRAME_RATE = 50 # To check
+    DEFAULT_FRAME_RATE = 25 
     DEFAULT_GRID_SIZE = 500
     NUM_KEYPOINTS = 27
     KPTS_DIMENSIONS = 2
