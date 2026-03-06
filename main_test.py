@@ -17,7 +17,8 @@ import os
 import tempfile
 from functools import reduce
 from operator import mul
-
+import os
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 import joblib
 import numpy as np
 import torch
@@ -471,14 +472,14 @@ def extract_hierarchical_embeddings(args):
                 with torch.amp.autocast("cuda", enabled=use_amp):
                     _, preds = model(samples, return_intermediates=True)
                     for i in range(len(preds)):
-                        embeds[i + 1].append(preds[i])
+                        embeds[i + 1].append(preds[i].detach().cpu())
                     if args.combine_embeddings and args.fusion_head:
                         preds = preds[: model.q_pool] + preds[-1:]
                         x = 0.0
                         for head, interm_x in zip(fusion_head[:-1], preds):
                             x += apply_fusion_head(head, interm_x.unsqueeze(0))
                         x = fusion_head[-1](x)  # layer norm
-                        fused_embeds.append(x.squeeze(0))
+                        fused_embeds.append(x.squeeze(0).detach().cpu())
 
         embeddings = {
             level: torch.cat(embeds[level], 0)
