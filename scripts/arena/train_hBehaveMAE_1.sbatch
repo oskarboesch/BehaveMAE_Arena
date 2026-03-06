@@ -3,7 +3,7 @@
 #SBATCH --account=cs433
 #SBATCH --qos=normal
 #SBATCH --gres=gpu:2
-#SBATCH --time=16:00:00
+#SBATCH --time=24:00:00
 #SBATCH --mem=64G
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
@@ -15,7 +15,7 @@
 GPUS=2
 
 common_args="--dataset arena \
-    --path_to_data_dir data/Arena_Data/shuffle-3_split-train.npz \
+    --path_to_data_dir ../../../scratch/izar/boesch/data/Arena_Data/shuffle-3_split-train.npz \
     --batch_size 512 \
     --model hbehavemae \
     --input_size 900 1 54 \
