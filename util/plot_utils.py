@@ -3,12 +3,10 @@ import matplotlib.pyplot as plt
 import plotly.express as px
 import plotly.graph_objects as go
 
-import umap
 from matplotlib.colors import ListedColormap, BoundaryNorm
 import matplotlib.colors as mcolors
 from sklearn.metrics.pairwise import cosine_distances
 from sklearn.decomposition import PCA
-from sklearn.cluster import KMeans, DBSCAN
 from sklearn.metrics import silhouette_score
 from scipy.stats import spearmanr
 import seaborn as sns
@@ -27,7 +25,10 @@ def scatter_layer_embeddings(
     interactive=False,
     colortime=False,
     center_idx=9,
-    colorspeed=False
+    colorspeed=False,
+    legend=True,
+    samples_per_group=None,
+    random_state=None
 ):
     """
     Plots embeddings for each layer using optional per-point colors.
@@ -43,6 +44,10 @@ def scatter_layer_embeddings(
         colorspeed: if True, color points by speed. Overrides list_of_colors.
     """
     num_layers = len(list_of_embeddings)
+
+    # Initialize random state for reproducibility
+    rng = np.random.RandomState(random_state)
+
 
     if list_of_colors is not None and len(list_of_colors) != num_layers:
         raise ValueError("list_of_colors must match list_of_embeddings length")
@@ -67,6 +72,21 @@ def scatter_layer_embeddings(
             frame_colors = cmap(speed)
         elif list_of_colors is not None:
             frame_colors = list_of_colors[i]
+            if samples_per_group is not None:
+                # randomly sample from each group dictated by the colors
+                unique_colors = np.unique(frame_colors, axis=0)
+                sampled_indices = []
+                for group in unique_colors:
+                    group_mask = np.all(frame_colors == group, axis=1)
+                    group_indices = np.where(group_mask)[0]
+                    # Sample up to samples_per_group from this group
+                    num_samples = min(samples_per_group, len(group_indices))
+                    sampled_group_indices = rng.choice(group_indices, size=num_samples, replace=False)
+                    sampled_indices.extend(sampled_group_indices)
+                
+                sampled_indices = np.array(sampled_indices)
+                embeddings = embeddings[sampled_indices]
+                frame_colors = frame_colors[sampled_indices]
         else:
             frame_colors = None
 
@@ -121,7 +141,7 @@ def scatter_layer_embeddings(
     if title:
         plt.suptitle(title)
 
-    if list_of_colors is not None and not colortime:
+    if list_of_colors is not None and not colortime and legend:
         for i, (ax, layer_colors) in enumerate(zip(fig.axes, list_of_colors)):
             unique_colors = np.unique(layer_colors, axis=0)
 
@@ -504,10 +524,11 @@ def plot_per_frame(
     plt.show()
 
 
-def plot_k_means_silhouettes(list_of_embeddings, k_range=(2,11), random_state=42):
+def plot_k_means_silhouettes(list_of_embeddings, k_range=(2,11), random_state=42, savepath=None):
     """ 
     Plots silhouette scores for KMeans clustering across a range of k values for multiple layers.
     """
+    from cuml.cluster import KMeans 
     K_range = range(k_range[0], k_range[1])
 
     silhouette_scores_layer_0 = []
@@ -532,12 +553,16 @@ def plot_k_means_silhouettes(list_of_embeddings, k_range=(2,11), random_state=42
     plt.ylabel('Silhouette Score')
     plt.title('Silhouette Scores for Each Layer')
     plt.legend()
+    if savepath is not None:
+        plt.savefig(savepath)
     plt.show()
 
-def plot_dbscan_silhouettes(list_of_embeddings, eps_range=(0.5, 5.0), min_samples=5):
+def plot_dbscan_silhouettes(list_of_embeddings, eps_range=(0.5, 5.0), min_samples=5, savepath=None):
     """
     Plots silhouette scores for DBSCAN clustering across a range of eps values for multiple layers.
     """
+    from cuml.cluster import DBSCAN 
+
     eps_values = np.arange(eps_range[0], eps_range[1], 1.0)
 
     silhouette_scores_layer_0 = []
@@ -571,6 +596,8 @@ def plot_dbscan_silhouettes(list_of_embeddings, eps_range=(0.5, 5.0), min_sample
     plt.ylabel('Silhouette Score')
     plt.title('Silhouette Scores for Each Layer (DBSCAN)')
     plt.legend()
+    if savepath is not None:
+        plt.savefig(savepath)
     plt.show()
 
 def plot_correlation_heatmap(list_of_frame_colors, labels, layer_labels=None, figsize=(12, 4), cmap="viridis"):
@@ -644,7 +671,7 @@ def compute_trajectory_embeddings(embeddings, window_size=30, stride=5, mean=Fal
     return np.array(trajectory_embeddings)
 
 
-def linear_plot_layer_embeddings(list_of_embeddings, dim=0, distance=False, angle=False, figsize=(12, 4)):
+def linear_plot_layer_embeddings(list_of_embeddings, frame_idxs = None, dim=0, distance=False, angle=False, figsize=(12, 4)):
     """
     Plots the specified dimension of embedding for each frame for each layer as a line plot. 
     Additionally plot the distance/angle in latent space wandered from frame to frame.
@@ -695,6 +722,11 @@ def linear_plot_layer_embeddings(list_of_embeddings, dim=0, distance=False, angl
         angle_ax.legend()
 
     axs[-1].set_xlabel("Frame index")
+    # if frame_idx add a horizontal line at each second element of all the tuples in frame_idxs
+    if frame_idxs is not None:
+        for frame_range in frame_idxs:
+            plt.axvline(frame_range[1], color='black')
+            
     plt.tight_layout()
     plt.show()
 
@@ -738,3 +770,109 @@ def compute_speed(keypoints, center_idx):
         diff[nans] = np.interp(np.flatnonzero(nans), np.flatnonzero(not_nans), diff[not_nans])
 
     return diff
+
+def plot_representative_keypoints_per_cluster(keypoints, cluster_labels):
+    """
+    Plot the average timewarped keypoint trajectories for each cluster, colored by cluster color given cluster labels and keypoints.
+    """
+    for cluster_id in np.unique(cluster_labels):
+        list_of_kps = get_list_of_keypoints_for_cluster(keypoints, cluster_labels, cluster_id)
+        avg_traj = get_average_trajectory(list_of_kps)
+        
+
+
+def get_average_trajectory(list_of_keypoints):
+    """
+    Retrieve the average timewarped keypoint trajectories for a given cluster id
+    """
+    pass
+
+def get_list_of_keypoints_for_cluster(keypoints, cluster_labels, cluster_id):
+    """
+    Retrieve the list of keypoint trajectories for a given cluster id
+    """
+    cluster_mask = (cluster_labels == cluster_id)
+    # return a list of consecutive cluster segments of keypoints
+    list_of_kps = []
+    start_idx = None
+    for i in range(len(cluster_mask)):
+        if cluster_mask[i] and start_idx is None:
+            start_idx = i
+        elif not cluster_mask[i] and start_idx is not None:
+            list_of_kps.append(keypoints[start_idx:i])
+            start_idx = None
+    if start_idx is not None:
+        list_of_kps.append(keypoints[start_idx:])
+    return list_of_kps
+
+def get_list_of_colors(list_of_embeddings, keys_df, group, frame_number_map=None):
+    """
+    Give a label for each embedding corresponding to the grouping key, age phase, experimental stage etc...
+    
+    Args:
+        list_of_embeddings: list of np.ndarray, each shape (N, D)
+        keys_df: DataFrame with run information, must include 'run_id' and the grouping column
+        group: column name in keys_df to use for grouping (e.g., 'age_phase', 'mouse_id', 'strain')
+        frame_number_map: optional dict mapping run_id to (start_idx, end_idx) tuples.
+                         If None, assumes embeddings are in the same order as keys_df with consecutive frames.
+    
+    Returns:
+        list_of_colors: list of np.ndarray, each shape (N, 3), RGB colors for each frame in each layer
+    """
+    # Validate inputs
+    if group not in keys_df.columns:
+        raise ValueError(f"Group column '{group}' not found in keys_df")
+    
+    if 'run_id' not in keys_df.columns:
+        raise ValueError("'run_id' column not found in keys_df")
+    
+    # Get unique groups and assign colors
+    unique_groups = keys_df[group].unique()
+    cmap = plt.cm.get_cmap('tab20', len(unique_groups))
+    group_to_color = {group_val: cmap(i)[:3] for i, group_val in enumerate(unique_groups)}
+    
+    # Create frame_number_map if not provided
+    if frame_number_map is None:
+        frame_number_map = {}
+        start_idx = 0
+        for _, row in keys_df.iterrows():
+            run_id = row['run_id']
+            run_length = row.get('run_length', None)
+            if run_length is None:
+                # If run_length not available, will be determined from embeddings
+                end_idx = None
+            else:
+                end_idx = start_idx + run_length
+            frame_number_map[run_id] = (start_idx, end_idx)
+            if end_idx is not None:
+                start_idx = end_idx
+    
+    # Generate color arrays for each layer
+    list_of_colors = []
+    
+    for embeddings in list_of_embeddings:
+        num_frames = len(embeddings)
+        colors = np.zeros((num_frames, 3))
+        
+        # Fill in colors based on run_id and group mapping
+        for idx, row in keys_df.iterrows():
+            run_id = row['run_id']
+            group_val = row[group]
+            
+            if run_id not in frame_number_map:
+                continue
+            
+            start_idx, end_idx = frame_number_map[run_id]
+            
+            # If end_idx is None, calculate from run_length
+            if end_idx is None:
+                run_length = row.get('run_length', 0)
+                end_idx = start_idx + run_length
+            
+            # Assign color to all frames in this run
+            color = group_to_color[group_val]
+            colors[start_idx:end_idx] = color
+        
+        list_of_colors.append(colors)
+    
+    return list_of_colors
