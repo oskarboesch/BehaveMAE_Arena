@@ -228,7 +228,12 @@ class BasePoseTrajDataset(torch.utils.data.Dataset):
 
         # Center the data using given center_index
         mouse_center = data[:, center_index, :]
+
         centered_data = data - mouse_center[:, np.newaxis, :]
+
+        # get rid of mouse_center idx in centered_data
+        centered_data = np.delete(centered_data, center_index, axis=1)
+
 
         # Rotate such that keypoints Tail base and neck are parallel with the y axis
         tail_base = self.BODY_PART_2_INDEX["tail_base"]
@@ -257,24 +262,31 @@ class BasePoseTrajDataset(torch.utils.data.Dataset):
         centered_data = np.matmul(R, centered_data.transpose(0, 2, 1))
         centered_data = centered_data.transpose((0, 2, 1))
 
-        centered_data = centered_data.reshape((-1, 24))
+        centered_data = centered_data.reshape((-1, (self.NUM_KEYPOINTS - 1) * self.KPTS_DIMENSIONS))
+
+        # Normalize centered_data by grid size to put in comparable scale to center
+        arena_half = float(self.DEFAULT_GRID_SIZE) / 2.0
+        centered_data = centered_data / arena_half
 
         # mean = np.mean(centered_data, axis=0)
         # centered_data = centered_data - mean
         return mouse_center, mouse_rotation, centered_data
 
     def transform_to_centeralign_components(self, data, center_index=7):
-
         seq_len, num_mice = data.shape[:2]
 
         mouse_center, mouse_rotation, centered_data = self.transform_to_centered_data(
             data, center_index
         )
 
+        # Normalize the center position to be position-invariant
+        # This makes the model focus on behavior rather than absolute position in arena
+        arena_half = float(self.DEFAULT_GRID_SIZE) / 2.0
+        mouse_center = (mouse_center - arena_half) / arena_half
+
         # Concatenate state as mouse center, mouse rotation and svd components
         data = np.concatenate([mouse_center, mouse_rotation, centered_data], axis=1)
         data = data.reshape(seq_len, num_mice, -1)
-
         return data
 
     def get_random_sample_from_sequence(self, sequence: np.ndarray):
@@ -333,5 +345,4 @@ class BasePoseTrajDataset(torch.utils.data.Dataset):
             subseq_ix[0], subseq_ix[1] : subseq_ix[1] + self.max_keypoints_len
         ]
         inputs = self.prepare_subsequence_sample(subsequence)
-
         return inputs, []
