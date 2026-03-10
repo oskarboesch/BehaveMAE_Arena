@@ -185,11 +185,18 @@ class ArenaDataset(BasePoseTrajDataset):
         
         print(f"Preprocessing complete: kept {kept_windows}/{total_windows} windows without NaN ({100*kept_windows/total_windows:.1f}%)")
 
-    def featurise_keypoints(self, keypoints):
-        keypoints = self.normalize(keypoints)
+    def featurise_keypoints(self, keypoints, windowed=True):
         if self.centeralign:
-            keypoints = keypoints.reshape(self.max_keypoints_len, *self.KEYFRAME_SHAPE)
-            keypoints = self.transform_to_centeralign_components(keypoints, center_idx=self.BODY_PART_2_INDEX["mouse_center"])
+            # For centeralign, work with unnormalized data first
+            # The normalization of center will happen inside transform_to_centeralign_components
+            if windowed:
+                keypoints = keypoints.reshape(self.max_keypoints_len, *self.KEYFRAME_SHAPE)
+            else:
+                keypoints = keypoints.reshape(-1, *self.KEYFRAME_SHAPE)
+            keypoints = self.transform_to_centeralign_components(keypoints, center_index=self.BODY_PART_2_INDEX["mouse_center"])
+        else:
+            # For non-centeralign, normalize the entire vector
+            keypoints = self.normalize(keypoints)
         keypoints = torch.tensor(keypoints, dtype=torch.float32)
         return keypoints
     
@@ -278,8 +285,8 @@ def plot_kp_in_2d(keypoints, frame_idxs=np.arange(1,50,1), title=None):
     plt.title(title if title else f"Frame {frame_idx}")
     plt.xlabel("X")
     plt.ylabel("Y")
-    plt.xlim(0, 500)
-    plt.ylim(0, 500)
+    plt.xlim(np.min(keypoints[:, :, 0]), np.max(keypoints[:, :, 0]))
+    plt.ylim(np.min(keypoints[:, :, 0]), np.max(keypoints[:, :, 1]))
     plt.gca().set_aspect('equal', adjustable='box')
     plt.grid()
     plt.show()
