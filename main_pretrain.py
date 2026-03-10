@@ -320,6 +320,7 @@ def main(args):
             sampling_rate=args.sampling_rate,
             augmentations=args.data_augment,
             include_testdata=args.include_test_data,
+             centeralign=args.centeralign,
         )
         dataset_test = ArenaDataset(
             mode="test",
@@ -328,6 +329,7 @@ def main(args):
             sliding_window=args.sliding_window,
             sampling_rate=args.sampling_rate,
             augmentations=None,
+            centeralign=args.centeralign,
         )
     else:
         print(f"Dataset {args.dataset} unknown...")
