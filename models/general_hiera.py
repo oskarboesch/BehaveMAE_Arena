@@ -22,6 +22,7 @@
 import math
 from functools import partial
 from typing import Callable, List, Optional, Tuple
+import warnings
 
 import numpy as np
 import torch
@@ -232,11 +233,14 @@ class GeneralizedHiera(nn.Module):
         **kwargs,  # attention!
     ):
         super().__init__()
-        # TODO: get rid of num_tokens + tokens_spatial_shape
+        if len(input_size) > 2:
+            warnings.warn(f"New implementation no longer requires fixed temporal dimension. Discarding the temporal shape {input_size[0]} from input_size.")
+            input_size = input_size[1:]
+
+        
         depth = sum(stages)
         self.patch_stride = patch_stride
         self.tokens_spatial_shape = [i // s for i, s in zip(input_size, patch_stride[1:])]
-        print("tokens_spatial_shape:", self.tokens_spatial_shape)
 
         if non_hierarchical:
             q_strides = [(1, 1, 1)] * len(stages)
@@ -453,7 +457,6 @@ class GeneralizedHiera(nn.Module):
         if isinstance(x, list):
             x = x[0]
         intermediates = []
-        print(f"Input x shape: {x.shape}")
         x = self.patch_embed(
             x,
             mask=mask.view(
@@ -462,7 +465,6 @@ class GeneralizedHiera(nn.Module):
             if mask is not None
             else None,
         )
-        print(f"x after patch embedding shape: {x.shape}")
         spatial_tokens = math.prod(self.tokens_spatial_shape)
         T_tokens = x.shape[1] // spatial_tokens
         x = x + self.get_pos_embed(T_tokens)
@@ -470,15 +472,12 @@ class GeneralizedHiera(nn.Module):
 
         # Discard masked tokens
         if mask is not None:
-            print(f"x before masking: {x.shape}")
             x = x[mask[..., None].tile(1, self.mu_size, x.shape[2])].view(
                 x.shape[0], -1, x.shape[-1]
             )
-            print(f"x after masking: {x.shape}")
 
         for i, blk in enumerate(self.blocks):
             x = blk(x)  
-            print(f"x after block {i}: {x.shape}")
 
             if return_intermediates and i in self.stage_ends:
                 intermediates.append(
