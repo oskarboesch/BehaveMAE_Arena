@@ -3,7 +3,7 @@
 GPUS=$1
 
 common_args="--dataset shot7m2 \
-    --path_to_data_dir data/Shot7M2/train/train_dictionary_poses.npy
+    --path_to_data_dir /scratch/izar/boesch/data/Shot7M2/train/train_dictionary_poses.npy \
     --batch_size 512 \
     --model hbehavemae \
     --input_size 400 1 72 \

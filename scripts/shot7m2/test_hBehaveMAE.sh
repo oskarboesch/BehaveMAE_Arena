@@ -2,10 +2,10 @@
 experiment=experiment1
 
 python run_test.py \
-    --path_to_data_dir data/Shot7M2/test/test_dictionary_poses.npy \
+    --path_to_data_dir /scratch/izar/boesch/data/Shot7M2/test/test_dictionary_poses.npy \
     --dataset shot7m2 \
     --embedsum False \
-    --fast_inference False \
+    --fast_inference True \
     --batch_size 512 \
     --model gen_hiera \
     --input_size 400 1 72 \
@@ -20,17 +20,11 @@ python run_test.py \
     --num_frames 400 \
     --pin_mem \
     --num_workers 8 \
-    --output_dir outputs/shot7m2/${experiment}
+    --output_dir /scratch/izar/boesch/BehaveMAE/outputs/shot7m2/experiment1 
 
 
 cd hierAS-eval
 
-nr_submissions=$(ls ../outputs/shot7m2/${experiment}/test_submission_* 2>/dev/null | wc -l)
+nr_submissions=$(ls /scratch/izar/boesch/BehaveMAE/outputs/shot7m2/${experiment}/test_submission_* 2>/dev/null | wc -l)
 files=($(seq 0 $((nr_submissions - 1))))
 
-parallel --line-buffer \
-    python evaluator.py \
-        --task Shot7M2 --output-dir results \
-        --labels ../data/Shot7M2/test/benchmark_labels.npy \
-        --submission ../outputs/shot7m2/${experiment}/test_submission_{}.npy \
-    ::: "${files[@]}"

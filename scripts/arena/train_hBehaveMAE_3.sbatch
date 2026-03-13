@@ -8,8 +8,8 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --job-name=arena-behave-mae
-#SBATCH --output=logs/arena/experiment2/slurm_%j.log
-#SBATCH --error=logs/arena/experiment2/slurm_%j.err
+#SBATCH --output=logs/arena/experiment3/slurm_%j.log
+#SBATCH --error=logs/arena/experiment3/slurm_%j.err
 
 # Number of GPUs
 GPUS=2
@@ -18,11 +18,11 @@ common_args="--dataset arena \
     --path_to_data_dir /scratch/izar/boesch/data/Arena_Data/shuffle-3_split-train.npz \
     --batch_size 512 \
     --model hbehavemae \
-    --input_size 400 1 54 \
+    --input_size 400 1 56 \
     --stages 2 3 4 \
     --q_strides 5,1,1;5,1,1 \
     --mask_unit_attn True False False \
-    --patch_kernel 2 1 2 \
+    --patch_kernel 2 1 56 \
     --init_embed_dim 96 \
     --init_num_heads 2 \
     --out_embed_dims 78 128 256 \
@@ -43,12 +43,13 @@ common_args="--dataset arena \
     --checkpoint_period 20 \
     --norm_loss False \
     --seed 0 \
-    --output_dir /scratch/izar/boesch/BehaveMAE/outputs/arena/experiment2 \
-    --log_dir logs/arena/experiment2"
+    --output_dir /scratch/izar/boesch/BehaveMAE/outputs/arena/experiment3 \
+    --centeralign \
+    --log_dir logs/arena/experiment3"
 
 # Create log directories if they don't exist
 mkdir -p logs/arena
-mkdir -p outputs/arena/experiment2
+mkdir -p outputs/arena/experiment3
 
 # activate behavemae conda environment
 source ~/miniconda3/etc/profile.d/conda.sh

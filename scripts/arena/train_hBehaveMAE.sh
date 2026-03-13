@@ -3,14 +3,14 @@
 GPUS=$1
 
 common_args="--dataset arena \
-    --path_to_data_dir data/Arena_Data/shuffle-3_split-train.npz \
+    --path_to_data_dir ../../../scratch/izar/boesch/data/Arena_Data/shuffle-3_split-train.npz \
     --batch_size 512 \
     --model hbehavemae \
-    --input_size 400 1 54 \
+    --input_size 400 1 56 \
     --stages 2 3 4 \
     --q_strides 2,1,1;2,1,1 \
     --mask_unit_attn True False False \
-    --patch_kernel 2 1 54 \
+    --patch_kernel 2 1 56 \
     --init_embed_dim 96 \
     --init_num_heads 2 \
     --out_embed_dims 78 128 256 \
@@ -31,8 +31,10 @@ common_args="--dataset arena \
     --checkpoint_period 20 \
     --norm_loss False \
     --seed 0 \
-    --output_dir outputs/arena/experiment2 \
-    --log_dir logs/arena/experiment2"
+    --output_dir ../../../scratch/izar/boesch/BehaveMAE/outputs/arena/experiment1 \
+    --log_dir logs/arena/experiment1 \
+    --centeralign
+    "
 
 
 if [[ $GPUS == 1 ]]; then
