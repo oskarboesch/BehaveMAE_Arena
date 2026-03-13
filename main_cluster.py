@@ -3,10 +3,10 @@ from cuml.cluster import KMeans, DBSCAN
 from util.plot_utils import plot_dbscan_silhouettes, plot_k_means_silhouettes
 
 def main():
-    run_id = ''
-    experiment = 'experiment1'  # Change this to experiment2 for the second set of embeddings
-    n_samples_per_video = 10**3  # Number of samples to use for silhouette score calculation (for large datasets)
-    output_path = f"outputs/arena/{experiment}"
+    run_id = None
+    experiment = 'experiment1'  
+    n_samples_per_video = 10**3  # Number of samples to use for silhouette score calculation
+    output_path = f"/scratch/izar/boesch/BehaveMAE/outputs/arena/{experiment}"
     dict_layer0_path = f"{output_path}/test_submission_0.npy"
     dict_layer1_path = f"{output_path}/test_submission_1.npy"
     dict_layer2_path = f"{output_path}/test_submission_2.npy"
@@ -36,18 +36,17 @@ def main():
     embeddings_layer2 = dict_layer2['embeddings']
 
     sampled_list_of_embeddings = [embeddings_layer0[kept_idx], embeddings_layer1[kept_idx], embeddings_layer2[kept_idx]]
-    list_of_embeddings = [embeddings_layer0, embeddings_layer1, embeddings_layer2]
 
     # plot_k_means_silhouettes(sampled_list_of_embeddings, savepath=f"{output_path}/kmeans_silhouette_scores.png")
-    # plot_dbscan_silhouettes(sampled_list_of_embeddings, eps_range=(0.5, 5.0), min_samples=5, savepath=f"{output_path}/dbscan_silhouette_scores.png")
+    # plot_dbscan_silhouettes(sampled_list_of_embeddings, eps_range=(0.1, 4.1), min_samples=50, savepath=f"{output_path}/dbscan_silhouette_scores.png")
 
     kmeans_layer0 = KMeans(n_clusters=2, random_state=0).fit(embeddings_layer0)
     kmeans_layer1 = KMeans(n_clusters=2, random_state=0).fit(embeddings_layer1)
     kmeans_layer2 = KMeans(n_clusters=2, random_state=0).fit(embeddings_layer2)
 
-    dbscan_layer0 = DBSCAN(eps=1.5, min_samples=10).fit(embeddings_layer0)
-    dbscan_layer1 = DBSCAN(eps=4.5, min_samples=10).fit(embeddings_layer1)
-    dbscan_layer2 = DBSCAN(eps=0.5, min_samples=10).fit(embeddings_layer2)
+    dbscan_layer0 = DBSCAN(eps=3.6, min_samples=50).fit(embeddings_layer0)
+    dbscan_layer1 = DBSCAN(eps=0.1, min_samples=50).fit(embeddings_layer1)
+    dbscan_layer2 = DBSCAN(eps=2.1, min_samples=50).fit(embeddings_layer2)
 
     # save the cluster labels for later analysis
     np.save(f"{output_path}/kmeans_labels_layer0.npy", kmeans_layer0.labels_)
