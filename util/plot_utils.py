@@ -17,6 +17,7 @@ from tqdm import tqdm
 
 def scatter_layer_embeddings(
     list_of_embeddings: list,
+    dims=(0,1),
     list_of_colors: list = None,
     keypoints=None,
     figsize=(12, 4),
@@ -28,7 +29,8 @@ def scatter_layer_embeddings(
     colorspeed=False,
     legend=True,
     samples_per_group=None,
-    random_state=None
+    random_state=None, 
+    save_path = None
 ):
     """
     Plots embeddings for each layer using optional per-point colors.
@@ -44,6 +46,7 @@ def scatter_layer_embeddings(
         colorspeed: if True, color points by speed. Overrides list_of_colors.
     """
     num_layers = len(list_of_embeddings)
+    many_classes_flags = [False] * num_layers
 
     # Initialize random state for reproducibility
     rng = np.random.RandomState(random_state)
@@ -71,13 +74,40 @@ def scatter_layer_embeddings(
             # Map speeds to RGBA colors
             frame_colors = cmap(speed)
         elif list_of_colors is not None:
-            frame_colors = list_of_colors[i]
+            frame_colors = np.asarray(list_of_colors[i])
+
+            # If there are many classes, switch to scalar class IDs + Blues colormap
+            # and use a colorbar instead of an oversized categorical legend.
+            if frame_colors.ndim == 1:
+                class_ids = frame_colors.astype(float)
+                n_classes = len(np.unique(class_ids))
+                if n_classes > 100:
+                    frame_colors = class_ids
+                    many_classes_flags[i] = True
+            elif frame_colors.ndim == 2 and frame_colors.shape[1] == 1:
+                class_ids = frame_colors[:, 0].astype(float)
+                n_classes = len(np.unique(class_ids))
+                if n_classes > 100:
+                    frame_colors = class_ids
+                    many_classes_flags[i] = True
+            elif frame_colors.ndim == 2 and frame_colors.shape[1] in (3, 4):
+                unique_colors, inverse_idx = np.unique(frame_colors, axis=0, return_inverse=True)
+                if len(unique_colors) > 100:
+                    frame_colors = inverse_idx.astype(float)
+                    many_classes_flags[i] = True
+
             if samples_per_group is not None:
                 # randomly sample from each group dictated by the colors
-                unique_colors = np.unique(frame_colors, axis=0)
+                if np.asarray(frame_colors).ndim == 1:
+                    unique_colors = np.unique(frame_colors)
+                else:
+                    unique_colors = np.unique(frame_colors, axis=0)
                 sampled_indices = []
                 for group in unique_colors:
-                    group_mask = np.all(frame_colors == group, axis=1)
+                    if np.asarray(frame_colors).ndim == 1:
+                        group_mask = frame_colors == group
+                    else:
+                        group_mask = np.all(frame_colors == group, axis=1)
                     group_indices = np.where(group_mask)[0]
                     # Sample up to samples_per_group from this group
                     num_samples = min(samples_per_group, len(group_indices))
@@ -100,7 +130,8 @@ def scatter_layer_embeddings(
                         mode='markers',
                         marker=dict(
                             size=1,
-                            color=frame_colors 
+                            color=frame_colors,
+                            colorscale='Blues' if many_classes_flags[i] else None
                         )
                     )
                 )
@@ -122,17 +153,28 @@ def scatter_layer_embeddings(
             if frame_colors is not None:
                 if colortime:
                     # Use frame index as scalar for coloring
-                    sc = ax.scatter(embeddings[:, 0], embeddings[:, 1], c=np.arange(len(embeddings)), cmap="viridis", alpha=0.5, s=1)
+                    sc = ax.scatter(embeddings[:, dims[0]], embeddings[:, dims[1]], c=np.arange(len(embeddings)), cmap="viridis", alpha=0.5, s=1)
                     if i == num_layers - 1:
                         plt.colorbar(sc, ax=ax, label="Frame Index")
                 elif colorspeed:
-                    sc = ax.scatter(embeddings[:, 0], embeddings[:, 1], c=speed, cmap="seismic", alpha=0.5, s=1)
+                    sc = ax.scatter(embeddings[:, dims[0]], embeddings[:, dims[1]], c=speed, cmap="seismic", alpha=0.5, s=1)
                     if i == num_layers - 1:
                         plt.colorbar(sc, ax=ax, label="Speed")
+                elif many_classes_flags[i]:
+                    sc = ax.scatter(
+                        embeddings[:, dims[0]],
+                        embeddings[:, dims[1]],
+                        c=frame_colors,
+                        cmap="Blues",
+                        alpha=0.5,
+                        s=1,
+                    )
+                    if i == num_layers - 1:
+                        plt.colorbar(sc, ax=ax, label="Class ID")
                 else:
-                    ax.scatter(embeddings[:, 0], embeddings[:, 1], c=frame_colors, alpha=0.5, s=1)
+                    ax.scatter(embeddings[:, dims[0]], embeddings[:, dims[1]], c=frame_colors, alpha=0.5, s=1)
             else:
-                ax.scatter(embeddings[:, 0], embeddings[:, 1], alpha=0.5, s=1)
+                ax.scatter(embeddings[:, dims[0]], embeddings[:, dims[1]], alpha=0.5, s=1)
 
         ax.set_xlabel("Dim 0")
         ax.set_ylabel("Dim 1")
@@ -143,6 +185,8 @@ def scatter_layer_embeddings(
 
     if list_of_colors is not None and not colortime and legend:
         for i, (ax, layer_colors) in enumerate(zip(fig.axes, list_of_colors)):
+            if many_classes_flags[i]:
+                continue
             unique_colors = np.unique(layer_colors, axis=0)
 
             handles = [
@@ -170,7 +214,8 @@ def scatter_layer_embeddings(
                 fontsize=8,
                 title_fontsize=9,
             )
-        
+    if save_path is not None:
+        plt.savefig(save_path)
     plt.tight_layout()
     plt.show()
 
@@ -563,7 +608,7 @@ def plot_dbscan_silhouettes(list_of_embeddings, eps_range=(0.5, 5.0), min_sample
     """
     from cuml.cluster import DBSCAN 
 
-    eps_values = np.arange(eps_range[0], eps_range[1], 1.0)
+    eps_values = np.arange(eps_range[0], eps_range[1], 0.5)
 
     silhouette_scores_layer_0 = []
     silhouette_scores_layer_1 = []
@@ -574,6 +619,9 @@ def plot_dbscan_silhouettes(list_of_embeddings, eps_range=(0.5, 5.0), min_sample
         labels_0 = dbscan.fit_predict(list_of_embeddings[0])
         labels_1 = dbscan.fit_predict(list_of_embeddings[1])
         labels_2 = dbscan.fit_predict(list_of_embeddings[2])
+        print(f"Found {len(set(labels_0))} clusters in Layer 0 with eps={eps}")
+        print(f"Found {len(set(labels_1))} clusters in Layer 1 with eps={eps}")
+        print(f"Found {len(set(labels_2))} clusters in Layer 2 with eps={eps}")
         # check if DBSCAN found at least 2 clusters (silhouette_score requires at least 2 clusters)
         if len(set(labels_0)) > 1:
             silhouette_scores_layer_0.append(silhouette_score(list_of_embeddings[0], labels_0))
@@ -805,7 +853,7 @@ def get_list_of_keypoints_for_cluster(keypoints, cluster_labels, cluster_id):
         list_of_kps.append(keypoints[start_idx:])
     return list_of_kps
 
-def get_list_of_colors(list_of_embeddings, keys_df, group, frame_number_map=None):
+def get_list_of_colors(list_of_embeddings, keys_df, group):
     """
     Give a label for each embedding corresponding to the grouping key, age phase, experimental stage etc...
     
@@ -813,8 +861,6 @@ def get_list_of_colors(list_of_embeddings, keys_df, group, frame_number_map=None
         list_of_embeddings: list of np.ndarray, each shape (N, D)
         keys_df: DataFrame with run information, must include 'run_id' and the grouping column
         group: column name in keys_df to use for grouping (e.g., 'age_phase', 'mouse_id', 'strain')
-        frame_number_map: optional dict mapping run_id to (start_idx, end_idx) tuples.
-                         If None, assumes embeddings are in the same order as keys_df with consecutive frames.
     
     Returns:
         list_of_colors: list of np.ndarray, each shape (N, 3), RGB colors for each frame in each layer
@@ -831,21 +877,15 @@ def get_list_of_colors(list_of_embeddings, keys_df, group, frame_number_map=None
     cmap = plt.cm.get_cmap('tab20', len(unique_groups))
     group_to_color = {group_val: cmap(i)[:3] for i, group_val in enumerate(unique_groups)}
     
-    # Create frame_number_map if not provided
-    if frame_number_map is None:
-        frame_number_map = {}
-        start_idx = 0
-        for _, row in keys_df.iterrows():
-            run_id = row['run_id']
-            run_length = row.get('run_length', None)
-            if run_length is None:
-                # If run_length not available, will be determined from embeddings
-                end_idx = None
-            else:
-                end_idx = start_idx + run_length
-            frame_number_map[run_id] = (start_idx, end_idx)
-            if end_idx is not None:
-                start_idx = end_idx
+    # Create frame_number_map from run_id and new_frame_range in metadata
+    frame_number_map = {}
+    for idx, row in keys_df.iterrows():
+        run_id = row['run_id']
+        frame_range = row.get('new_frame_range', None)
+        if frame_range is not None:
+            frame_number_map[run_id] = (frame_range[0], frame_range[1])
+        else:
+            frame_number_map[run_id] = (None, None)  # will handle later if needed
     
     # Generate color arrays for each layer
     list_of_colors = []
