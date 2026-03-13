@@ -327,3 +327,36 @@ class Reroll(nn.Module):
         x = undo_windowing(x, size, cur_mu_shape)
 
         return x
+
+def check_hiera_dimensions(x: torch.Tensor, patch_kernel: tuple, patch_stride: tuple, q_strides: list, verbose: bool = False):
+    """Ensures the selected patch kernel and strides are applicable to the input dimensions."""
+    assert len(x.shape) == 5, "Input x must be a 5D tensor [B, C, T, N, D]"
+    _, _, T, N, D = x.shape
+    dims = (T, N, D)
+    dim_names = ("T", "N", "D")
+
+    # Check patch kernel/stride divisibility first
+    assert len(patch_kernel) == 3, "Patch kernel must be length 3"
+    assert len(patch_stride) == 3, "Patch stride must be length 3"
+    for d, k, s, name in zip(dims, patch_kernel, patch_stride, dim_names):
+        assert k > 0, f"Patch kernel {name} must be positive"
+        assert s > 0, f"Patch stride {name} must be positive"
+        assert d % s == 0, f"{name}={d} must be divisible by patch_stride {s}"
+
+    # Current size after patch_embed
+    current = tuple(d // s for d, s in zip(dims, patch_stride))
+    print(f"After patch_embed: {dict(zip(dim_names, current))}") if verbose else None
+
+    # Check q_strides sequentially on post-patch-embed size
+    for i, stride in enumerate(q_strides):
+        assert len(stride) == 3, f"q_strides[{i}] must be length 3"
+        for curr, s, name in zip(current, stride, dim_names):
+            assert s > 0, f"Stride {name} at q_strides[{i}] must be positive"
+            assert curr % s == 0, (
+                f"After patch_embed + {i} pooling steps, {name}={curr} "
+                f"must be divisible by q_strides[{i}].{name}={s}"
+            )
+        current = tuple(c // s for c, s in zip(current, stride))
+        print(f"After q_strides[{i}]={stride}: {dict(zip(dim_names, current))}") if verbose else None
+
+    print(f"Final token shape after all strides and patch embedding: {current}") if verbose else None

@@ -30,7 +30,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from timm.models.layers import DropPath, Mlp
 
-from .hiera_utils import Reroll, Unroll, conv_nd, do_masked_conv, do_pool
+from .hiera_utils import Reroll, Unroll, conv_nd, do_masked_conv, do_pool, check_hiera_dimensions
 
 
 class MaskUnitAttention(nn.Module):
@@ -456,6 +456,7 @@ class GeneralizedHiera(nn.Module):
         # Slowfast training passes in a list
         if isinstance(x, list):
             x = x[0]
+        check_hiera_dimensions(x, self.patch_kernel, self.patch_stride, self.q_strides)
         intermediates = []
         x = self.patch_embed(
             x,
