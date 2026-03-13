@@ -17,8 +17,7 @@ import os
 import tempfile
 from functools import reduce
 from operator import mul
-import os
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
 import joblib
 import numpy as np
 import torch
@@ -31,8 +30,8 @@ from tqdm import tqdm
 import util.misc as misc
 from datasets import hbabel as hbabel
 from datasets import mabe22_mice as mice
-from datasets import arena_dataset as arena
 from datasets import shot7m2 as shot7m2
+from datasets import arena_dataset as arena
 from models import models_defs
 from models.hbehave_mae import apply_fusion_head
 from models.hiera_utils import conv_nd
@@ -278,7 +277,9 @@ def extract_hierarchical_embeddings(args):
     if args.dataset == "shot7m2":
         submission_clips = np.load(args.path_to_data_dir, allow_pickle=True).item()
         submission_clips["sequences"] = submission_clips["sequences"]["keypoints"]
-        submission_clips["sequences"] = dict(list(submission_clips["sequences"].items())[: 2])  # for quick tests, remove for full evaluation
+        # take only the first 2 elements
+        submission_clips["sequences"] = dict(list(submission_clips["sequences"].items())[:2])
+
         num_animals = 1
         max_frame_emb_size = 64
         nr_test_frames = sum(len(seq) for seq in submission_clips["sequences"].values())
@@ -333,6 +334,8 @@ def extract_hierarchical_embeddings(args):
         normalize = arena.ArenaDataset._normalize
         fill_holes = arena.ArenaDataset.fill_holes
         grid_size = arena.ArenaDataset.DEFAULT_GRID_SIZE
+        dataset = arena.ArenaDataset(mode='pretrain', path_to_data_dir='/scratch/izar/boesch/data/Arena_Data/shuffle-3_split-test.npz', 
+                                     centeralign=args.centeralign, num_frames=args.num_frames)
         max_frame_emb_size = 64
         nr_test_frames = (sum(len(seq) for seq in submission_clips["sequences"].values())) 
     else:
@@ -422,8 +425,12 @@ def extract_hierarchical_embeddings(args):
                 vec_seq = normalize(vec_seq, grid_size)
 
         if args.centeralign:
-            vec_seq = vec_seq.reshape(vec_seq.shape[0], mice.NUM_MICE, 12, 2)
-            vec_seq = mice.transform_to_centeralign_components(vec_seq)
+            if args.dataset == "mabe_mice":
+                vec_seq = vec_seq.reshape(vec_seq.shape[0], mice.NUM_MICE, 12, 2)
+                vec_seq = mice.transform_to_centeralign_components(vec_seq)
+            else :
+                vec_seq = dataset.featurise_keypoints(vec_seq, windowed=False)
+
 
         full_seq_len = vec_seq.shape[0]
 
@@ -467,19 +474,17 @@ def extract_hierarchical_embeddings(args):
                 fused_embeds = []
             for samples in data_loader:
                 samples = samples[:, None, :].to(device, non_blocking=True)
-                use_amp = not bool(args.fp32)
-
-                with torch.amp.autocast("cuda", enabled=use_amp):
+                with torch.amp.autocast('cuda', enabled=not args.fp32):
                     _, preds = model(samples, return_intermediates=True)
                     for i in range(len(preds)):
-                        embeds[i + 1].append(preds[i].detach().cpu())
+                        embeds[i + 1].append(preds[i])
                     if args.combine_embeddings and args.fusion_head:
                         preds = preds[: model.q_pool] + preds[-1:]
                         x = 0.0
                         for head, interm_x in zip(fusion_head[:-1], preds):
                             x += apply_fusion_head(head, interm_x.unsqueeze(0))
                         x = fusion_head[-1](x)  # layer norm
-                        fused_embeds.append(x.squeeze(0).detach().cpu())
+                        fused_embeds.append(x.squeeze(0))
 
         embeddings = {
             level: torch.cat(embeds[level], 0)
