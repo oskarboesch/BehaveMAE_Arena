@@ -207,7 +207,7 @@ class PatchEmbed(nn.Module):
 class GeneralizedHiera(nn.Module):
     def __init__(
         self,
-        input_size: Tuple[int, ...] = (400, 1, 72),
+        input_size: Tuple[int, ...] = (1, 72),
         in_chans: int = 1,
         embed_dim: int = 64,  # initial embed dim
         num_heads: int = 2,  # initial number of heads
@@ -227,25 +227,30 @@ class GeneralizedHiera(nn.Module):
         norm_layer: nn.Module = partial(nn.LayerNorm, eps=1e-6),
         head_dropout: float = 0.0,
         head_init_scale: float = 0.001,
-        sep_pos_embed: bool = False,
+        sep_pos_embed: bool = True,
+        learnable_pos_embed: bool = True,
         **kwargs,  # attention!
     ):
         super().__init__()
-
+        # TODO: get rid of num_tokens + tokens_spatial_shape
         depth = sum(stages)
         self.patch_stride = patch_stride
-        self.tokens_spatial_shape = [i // s for i, s in zip(input_size, patch_stride)]
-        num_tokens = math.prod(self.tokens_spatial_shape)
+        self.tokens_spatial_shape = [i // s for i, s in zip(input_size, patch_stride[1:])]
+        print("tokens_spatial_shape:", self.tokens_spatial_shape)
 
         if non_hierarchical:
             q_strides = [(1, 1, 1)] * len(stages)
             out_embed_dims = [out_embed_dims[0]] * len(stages)
 
         mask_unit_size = tuple(np.prod(q_strides, axis=0))
+        self.temporal_pooling_factor = math.prod(s[0] for s in q_strides)
         flat_mu_size = math.prod(mask_unit_size)
         flat_q_strides = [math.prod(q_stride) for q_stride in q_strides]
         self.flat_q_strides = flat_q_strides
         self.mask_unit_attn = mask_unit_attn
+        self.patch_kernel = patch_kernel
+        self.patch_stride = patch_stride
+        self.patch_padding = patch_padding
 
         self.q_strides = q_strides
         q_pool = len(q_strides)
@@ -253,7 +258,7 @@ class GeneralizedHiera(nn.Module):
 
         self.mu_size, self.mask_unit_size = flat_mu_size, mask_unit_size
         self.mask_spatial_shape = [
-            i // s for i, s in zip(self.tokens_spatial_shape, self.mask_unit_size)
+            i // s for i, s in zip(self.tokens_spatial_shape, self.mask_unit_size[1:])
         ]
         self.stage_ends = [sum(stages[:i]) - 1 for i in range(1, len(stages) + 1)]
 
@@ -262,19 +267,20 @@ class GeneralizedHiera(nn.Module):
         )
 
         self.sep_pos_embed = sep_pos_embed
-        if sep_pos_embed:
-            self.pos_embed_spatial = nn.Parameter(
-                torch.zeros(
-                    1,
-                    self.tokens_spatial_shape[1] * self.tokens_spatial_shape[2],
-                    embed_dim,
-                )
+        self.learnable_pos_embed = learnable_pos_embed
+        self.pos_embed_dim = embed_dim
+        if not self.sep_pos_embed:
+            raise ValueError(
+                "sep_pos_embed must be True. This model uses learnable spatial positional embeddings "
+                "(last two token dims) and fixed sinusoidal temporal positional embeddings."
             )
-            self.pos_embed_temporal = nn.Parameter(
-                torch.zeros(1, self.tokens_spatial_shape[0], embed_dim)
+        self.pos_embed_spatial = nn.Parameter(
+            torch.zeros(
+                1,
+                self.tokens_spatial_shape[0] * self.tokens_spatial_shape[1],
+                embed_dim,
             )
-        else:
-            self.pos_embed = nn.Parameter(torch.zeros(1, num_tokens, embed_dim))
+        )
 
         # Setup roll and reroll modules
         self.unroll = Unroll(input_size, patch_stride, q_strides)
@@ -358,11 +364,7 @@ class GeneralizedHiera(nn.Module):
         self.head = Head(embed_dim, num_classes, dropout_rate=head_dropout)
 
         # Initialize everything
-        if sep_pos_embed:
-            nn.init.trunc_normal_(self.pos_embed_spatial, std=0.02)
-            nn.init.trunc_normal_(self.pos_embed_temporal, std=0.02)
-        else:
-            nn.init.trunc_normal_(self.pos_embed, std=0.02)
+        nn.init.trunc_normal_(self.pos_embed_spatial, std=0.02)
         self.apply(partial(self._init_weights))
         self.head.projection.weight.data.mul_(head_init_scale)
         self.head.projection.bias.data.mul_(head_init_scale)
@@ -378,10 +380,20 @@ class GeneralizedHiera(nn.Module):
 
     @torch.jit.ignore
     def no_weight_decay(self):
-        if self.sep_pos_embed:
-            return ["pos_embed_spatial", "pos_embed_temporal"]
-        else:
-            return ["pos_embed"]
+        return ["pos_embed_spatial"]
+
+    @staticmethod
+    def _get_sinusoidal_embed(T: int, dim: int, device: torch.device) -> torch.Tensor:
+        """Returns a [1, T, dim] sinusoidal positional embedding."""
+        position = torch.arange(T, dtype=torch.float, device=device).unsqueeze(1)
+        div_term = torch.exp(
+            torch.arange(0, dim, 2, dtype=torch.float, device=device)
+            * (-math.log(10000.0) / dim)
+        )
+        pe = torch.zeros(1, T, dim, device=device)
+        pe[0, :, 0::2] = torch.sin(position * div_term)
+        pe[0, :, 1::2] = torch.cos(position * div_term[: dim // 2])
+        return pe
 
     def get_random_mask(self, x: torch.Tensor, mask_ratio: float) -> torch.Tensor:
         """
@@ -390,7 +402,11 @@ class GeneralizedHiera(nn.Module):
         """
         B = x.shape[0]
         # Tokens selected for masking at mask unit level
-        num_windows = math.prod(self.mask_spatial_shape)  # num_mask_units
+
+        T_tokens = x.shape[2] // ( self.temporal_pooling_factor * self.patch_stride[0] )  # infer temporal part from input
+        mask_spatial_shape = [T_tokens] + self.mask_spatial_shape
+
+        num_windows = math.prod(mask_spatial_shape)  # num_mask_units
         len_keep = int(num_windows * (1 - mask_ratio))
         noise = torch.rand(B, num_windows, device=x.device)
 
@@ -409,17 +425,19 @@ class GeneralizedHiera(nn.Module):
 
         return mask.bool()
 
-    def get_pos_embed(self) -> torch.Tensor:
-        if self.sep_pos_embed:
-            return self.pos_embed_spatial.repeat(
-                1, self.tokens_spatial_shape[0], 1
-            ) + torch.repeat_interleave(
-                self.pos_embed_temporal,
-                self.tokens_spatial_shape[1] * self.tokens_spatial_shape[2],
-                dim=1,
-            )
-        else:
-            return self.pos_embed
+    def get_pos_embed(self, T_tokens: int) -> torch.Tensor:
+        temporal_embed = self._get_sinusoidal_embed(
+            T_tokens,
+            self.pos_embed_spatial.shape[-1],
+            self.pos_embed_spatial.device,
+        )
+        return self.pos_embed_spatial.repeat(
+            1, T_tokens, 1
+        ) + torch.repeat_interleave(
+            temporal_embed,
+            self.tokens_spatial_shape[0] * self.tokens_spatial_shape[1],
+            dim=1,
+        )
 
     def forward(
         self,
@@ -435,26 +453,32 @@ class GeneralizedHiera(nn.Module):
         if isinstance(x, list):
             x = x[0]
         intermediates = []
-
+        print(f"Input x shape: {x.shape}")
         x = self.patch_embed(
             x,
             mask=mask.view(
-                x.shape[0], 1, *self.mask_spatial_shape
+                x.shape[0], 1, -1, *self.mask_spatial_shape
             )  # B, C, *mask_spatial_shape
             if mask is not None
             else None,
         )
-        x = x + self.get_pos_embed()
+        print(f"x after patch embedding shape: {x.shape}")
+        spatial_tokens = math.prod(self.tokens_spatial_shape)
+        T_tokens = x.shape[1] // spatial_tokens
+        x = x + self.get_pos_embed(T_tokens)
         x = self.unroll(x)
 
         # Discard masked tokens
         if mask is not None:
+            print(f"x before masking: {x.shape}")
             x = x[mask[..., None].tile(1, self.mu_size, x.shape[2])].view(
                 x.shape[0], -1, x.shape[-1]
             )
+            print(f"x after masking: {x.shape}")
 
         for i, blk in enumerate(self.blocks):
-            x = blk(x)
+            x = blk(x)  
+            print(f"x after block {i}: {x.shape}")
 
             if return_intermediates and i in self.stage_ends:
                 intermediates.append(

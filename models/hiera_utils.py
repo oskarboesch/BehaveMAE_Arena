@@ -178,12 +178,13 @@ class Unroll(nn.Module):
 
     def __init__(
         self,
-        input_size: Tuple[int, ...],
+        spatial_shape: Tuple[int, ...],
         patch_stride: Tuple[int, ...],
         unroll_schedule: List[Tuple[int, ...]],
     ):
         super().__init__()
-        self.size = [i // s for i, s in zip(input_size, patch_stride)]
+        self.patch_stride = patch_stride
+        self.spatial_shape = [s // p for s, p in zip(spatial_shape, patch_stride[1:])]
         self.schedule = unroll_schedule
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -191,9 +192,10 @@ class Unroll(nn.Module):
         Input: Flattened patch embeddings [B, N, C]
         Output: Patch embeddings [B, N, C] permuted such that [B, 4, N//4, C].max(1) etc. performs MaxPoolNd
         """
-        B, _, C = x.shape
-
-        cur_size = self.size
+        B, N, C = x.shape
+        T_token = N // math.prod(self.spatial_shape)  # infer temporal part from input
+        cur_size = list((T_token, *self.spatial_shape))
+        
         x = x.view(*([B] + cur_size + [C]))
 
         for strides in self.schedule:
@@ -217,7 +219,7 @@ class Unroll(nn.Module):
             x = x.flatten(0, len(strides))
             B *= math.prod(strides)
 
-        x = x.reshape(-1, math.prod(self.size), C)
+        x = x.reshape(-1, math.prod((T_token, *self.spatial_shape)), C)
         return x
 
 
@@ -228,26 +230,37 @@ class Reroll(nn.Module):
 
     def __init__(
         self,
-        input_size: Tuple[int, ...],
+        spatial_shape: Tuple[int, ...],
         patch_stride: Tuple[int, ...],
         unroll_schedule: List[Tuple[int, ...]],
         stage_ends: List[int],
         q_pool: int,
     ):
         super().__init__()
-        self.size = [i // s for i, s in zip(input_size, patch_stride)]
-
+        self.spatial_shape = [i // s for i, s in zip(spatial_shape, patch_stride[1:])]
         # The first stage has to reverse everything
         # The next stage has to reverse all but the first unroll, etc.
         self.schedule = {}
-        size = self.size
+        unroll_schedule_copy = list(unroll_schedule)  # local copy to consume
+        self.mu_spatial_shape = self.spatial_shape.copy()
+        for stride in unroll_schedule:
+            self.mu_spatial_shape = [s // st for s, st in zip(self.mu_spatial_shape, stride[1:])]
+
         for i in range(stage_ends[-1] + 1):
-            self.schedule[i] = unroll_schedule, size
+            self.schedule[i] = unroll_schedule
             # schedule unchanged if no pooling at a stage end
             if i in stage_ends[:q_pool]:
-                if len(unroll_schedule) > 0:
-                    size = [n // s for n, s in zip(size, unroll_schedule[0])]
                 unroll_schedule = unroll_schedule[1:]
+        self.rec_schedule = {}
+        consumed = []
+
+        for i in range(stage_ends[-1] + 1):
+            self.rec_schedule[i] = list(consumed)
+            if i in stage_ends[:q_pool]:
+                if len(unroll_schedule_copy) > 0:
+                    consumed.append(unroll_schedule_copy[0])
+                    unroll_schedule_copy = unroll_schedule_copy[1:]
+        # define mu spatial shape as spatial shape as raw shape passed through all kernel
 
     def forward(
         self, x: torch.Tensor, block_idx: int, mask: torch.Tensor = None
@@ -260,9 +273,23 @@ class Reroll(nn.Module):
         If a mask is provided:
             - Returns [B, #MUs, MUy, MUx, C] for 2d, etc.
         """
-        schedule, size = self.schedule[block_idx]
+        schedule = self.schedule[block_idx]
+        inv_schedule = self.rec_schedule[block_idx]
         B, N, C = x.shape
-
+        spatial = self.spatial_shape.copy()
+        if block_idx > 0:
+            for patch_kernel in inv_schedule:
+                spatial = [i // s for i, s in zip(spatial, patch_kernel[1:])]
+        
+        if mask is None or len(mask[0]) // math.prod(self.mu_spatial_shape) == N:
+            temporal = N // math.prod(spatial)
+        else:
+            mask_temporal = len(mask[0]) // math.prod(self.mu_spatial_shape)
+            temporal_factor = math.prod([stride[0] for stride in schedule])
+            temporal = mask_temporal*temporal_factor
+            
+        # we need to infer temporal shape from input to be length agnostic
+        size = [temporal] + spatial
         D = len(size)
         cur_mu_shape = [1] * D
 

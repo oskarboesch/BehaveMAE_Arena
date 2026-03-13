@@ -82,7 +82,8 @@ class HBehaveMAE(GeneralizedHiera):
             i // s for i, s in zip(self.mask_unit_size, overall_q_strides)
         ]
         self.tokens_spatial_shape_final = [
-            i // s for i, s in zip(self.tokens_spatial_shape, overall_q_strides)
+            i // s
+            for i, s in zip(self.tokens_spatial_shape, overall_q_strides[1:])
         ]
 
         # --------------------------------------------------------------------------
@@ -114,9 +115,11 @@ class HBehaveMAE(GeneralizedHiera):
 
         self.mask_token = nn.Parameter(torch.zeros(1, 1, decoder_embed_dim))
 
-        self.decoder_pos_embed = nn.Parameter(
+        self.decoder_pos_embed_spatial = nn.Parameter(
             torch.zeros(
-                1, math.prod(self.tokens_spatial_shape_final), decoder_embed_dim
+                1,
+                self.tokens_spatial_shape_final[0] * self.tokens_spatial_shape_final[1],
+                decoder_embed_dim,
             )
         )
 
@@ -154,7 +157,7 @@ class HBehaveMAE(GeneralizedHiera):
 
     def initialize_weights(self):
         nn.init.trunc_normal_(self.mask_token, std=0.02)
-        nn.init.trunc_normal_(self.decoder_pos_embed, std=0.02)
+        nn.init.trunc_normal_(self.decoder_pos_embed_spatial, std=0.02)
         self.apply(self._mae_init_weights)
 
         # initialize patch_embed like nn.Linear (instead of nn.Conv2d)
@@ -206,7 +209,8 @@ class HBehaveMAE(GeneralizedHiera):
         input_vid = input_vid[:, :, :: self.patch_stride[0], :, :]
 
         _, _, T, H, W = input_vid.shape
-        t_num_blocks, h_num_blocks, w_num_blocks = self.tokens_spatial_shape_final
+        h_num_blocks, w_num_blocks = self.tokens_spatial_shape_final
+        t_num_blocks = mask.shape[1] // (h_num_blocks * w_num_blocks)
 
         label = self.patch_pixel_label_3d(
             input_vid, T // t_num_blocks, H // h_num_blocks, W // w_num_blocks
@@ -255,6 +259,15 @@ class HBehaveMAE(GeneralizedHiera):
         # Embed tokens
         x = self.decoder_embed(x)
 
+        # Infer temporal token count at final decoder resolution from mask units.
+        spatial_mu = math.prod(self.mask_spatial_shape)
+        temporal_mu = mask.shape[1] // spatial_mu
+        tokens_spatial_shape_final = [
+            temporal_mu * self.mask_unit_spatial_shape_final[0],
+            self.tokens_spatial_shape_final[0],
+            self.tokens_spatial_shape_final[1],
+        ]
+
         # Combine visible and mask tokens
 
         # x: [B, #MUs, *mask_unit_spatial_shape_final, encoder_dim_out]
@@ -271,12 +284,12 @@ class HBehaveMAE(GeneralizedHiera):
         # Get back spatial order
         x = undo_windowing(
             x_dec,
-            self.tokens_spatial_shape_final,
+            tokens_spatial_shape_final,
             self.mask_unit_spatial_shape_final,
         )
         mask = undo_windowing(
             mask[..., 0:1],
-            self.tokens_spatial_shape_final,
+            tokens_spatial_shape_final,
             self.mask_unit_spatial_shape_final,
         )
 
@@ -285,7 +298,21 @@ class HBehaveMAE(GeneralizedHiera):
         mask = mask.view(x.shape[0], -1)
 
         # Add pos embed
-        x = x + self.decoder_pos_embed
+        temporal_tokens_final = x.shape[1] // (
+            self.tokens_spatial_shape_final[0] * self.tokens_spatial_shape_final[1]
+        )
+        decoder_pos_embed = self.decoder_pos_embed_spatial.repeat(
+            1, temporal_tokens_final, 1
+        ) + torch.repeat_interleave(
+            self._get_sinusoidal_embed(
+                temporal_tokens_final,
+                self.decoder_pos_embed_spatial.shape[-1],
+                self.decoder_pos_embed_spatial.device,
+            ),
+            self.tokens_spatial_shape_final[0] * self.tokens_spatial_shape_final[1],
+            dim=1,
+        )
+        x = x + decoder_pos_embed
 
         # Apply decoder blocks
         for blk in self.decoder_blocks:
