@@ -2,9 +2,9 @@ import numpy as np
 from cuml.manifold import TSNE, UMAP
 
 def main():
-    experiment = 'experiment1'  # Change this to experiment2 for the second set of embeddings
-    DIMS = 2
-    output_path = f"outputs/arena/{experiment}"
+    experiment = 'experiment3'  # Change this to experiment2 for the second set of embeddings
+    DIMS = 50
+    output_path = f"/scratch/izar/boesch/BehaveMAE/outputs/arena/{experiment}"
     dict_layer0_path = f"{output_path}/test_submission_0.npy"
     dict_layer1_path = f"{output_path}/test_submission_1.npy"
     dict_layer2_path = f"{output_path}/test_submission_2.npy"
