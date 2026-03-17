@@ -328,16 +328,48 @@ class Reroll(nn.Module):
 
         return x
 
-def check_hiera_dimensions(x: torch.Tensor, patch_kernel: tuple, patch_stride: tuple, q_strides: list, verbose: bool = False):
+def check_hiera_dimensions(x: torch.Tensor, patch_kernel: tuple, patch_stride: tuple, q_strides: list, verbose: bool = False, pad=True):
     """Ensures the selected patch kernel and strides are applicable to the input dimensions."""
     assert len(x.shape) == 5, "Input x must be a 5D tensor [B, C, T, N, D]"
-    _, _, T, N, D = x.shape
-    dims = (T, N, D)
+    B, C, T, N, D = x.shape
     dim_names = ("T", "N", "D")
 
-    # Check patch kernel/stride divisibility first
     assert len(patch_kernel) == 3, "Patch kernel must be length 3"
     assert len(patch_stride) == 3, "Patch stride must be length 3"
+
+    if pad:
+        def required_raw_size(d, ps, strides_for_dim):
+            """
+            Find smallest d' >= d such that:
+            - d' % ps == 0  (patch_embed divisibility)
+            - (d' // ps) is divisible by each q_stride in sequence
+            We need d' divisible by ps * prod(q_strides).
+            """
+            total_q = 1
+            for s in strides_for_dim:
+                total_q *= s
+            total = ps * total_q  # raw input must be divisible by this
+            return d if d % total == 0 else d + (total - d % total)
+
+        strides_per_dim = [[stride[i] for stride in q_strides] for i in range(3)]
+
+        new_T = required_raw_size(T, patch_stride[0], strides_per_dim[0])
+        new_N = required_raw_size(N, patch_stride[1], strides_per_dim[1])
+        new_D = required_raw_size(D, patch_stride[2], strides_per_dim[2])
+
+        pad_T, pad_N, pad_D = new_T - T, new_N - N, new_D - D
+
+        if any(p > 0 for p in (pad_T, pad_N, pad_D)):
+            # pad format (last dim first): (D_before, D_after, N_before, N_after, T_before, T_after)
+            x = torch.nn.functional.pad(x, (0, pad_D, 0, pad_N, 0, pad_T), mode='replicate')
+            if verbose:
+                print(f"Padded: T {T}→{new_T} (+{pad_T}), N {N}→{new_N} (+{pad_N}), D {D}→{new_D} (+{pad_D})")
+
+        _, _, T, N, D = x.shape  # update dims after padding
+
+    dims = (T, N, D)
+
+    # Check patch kernel/stride divisibility
     for d, k, s, name in zip(dims, patch_kernel, patch_stride, dim_names):
         assert k > 0, f"Patch kernel {name} must be positive"
         assert s > 0, f"Patch stride {name} must be positive"
@@ -347,7 +379,7 @@ def check_hiera_dimensions(x: torch.Tensor, patch_kernel: tuple, patch_stride: t
     current = tuple(d // s for d, s in zip(dims, patch_stride))
     print(f"After patch_embed: {dict(zip(dim_names, current))}") if verbose else None
 
-    # Check q_strides sequentially on post-patch-embed size
+    # Check q_strides sequentially
     for i, stride in enumerate(q_strides):
         assert len(stride) == 3, f"q_strides[{i}] must be length 3"
         for curr, s, name in zip(current, stride, dim_names):
@@ -360,3 +392,5 @@ def check_hiera_dimensions(x: torch.Tensor, patch_kernel: tuple, patch_stride: t
         print(f"After q_strides[{i}]={stride}: {dict(zip(dim_names, current))}") if verbose else None
 
     print(f"Final token shape after all strides and patch embedding: {current}") if verbose else None
+
+    return x  # return padded tensor
