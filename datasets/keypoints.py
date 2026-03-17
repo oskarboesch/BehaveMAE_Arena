@@ -16,6 +16,10 @@ def get_kinematics(keypoints, mean=True):
     kinematics = {}
     for run, keypoints in tqdm(keypoints.items(), desc="Processing runs"):
         kinematics[run] = {
+            'center_pos_x': keypoints[:, MAPPING['mouse_center'], 0],
+            'center_pos_y': keypoints[:, MAPPING['mouse_center'], 1],
+            'speed_x': get_speed(keypoints, dim=0),
+            'speed_y': get_speed(keypoints, dim=1),
             'speed': get_speed(keypoints),
             'acceleration': get_acceleration(keypoints),
             'nt_angular_velocity': get_nt_angular_velocity(keypoints),
@@ -28,7 +32,7 @@ def get_kinematics(keypoints, mean=True):
     return kinematics
 
 
-def get_speed(keypoints):
+def get_speed(keypoints, dim=None):
     """
     Collect center speed from the keypoints.
 
@@ -37,8 +41,11 @@ def get_speed(keypoints):
     Returns:
         array: array with the speed for each frame (num_frames-1,)
     """
-    deltas = np.diff(keypoints[:, MAPPING['mouse_center'], :], axis=0)
-    speed = np.linalg.norm(deltas, axis=1)
+    if dim is not None:
+        speed = np.diff(keypoints[:, MAPPING['mouse_center'], dim], axis=0)
+    else:
+        deltas = np.diff(keypoints[:, MAPPING['mouse_center'], :], axis=0)
+        speed = np.linalg.norm(deltas, axis=1)
     return speed
 
 def get_acceleration(keypoints):
