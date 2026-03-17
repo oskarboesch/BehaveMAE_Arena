@@ -1,5 +1,4 @@
 from pathlib import Path
-from torchvision import transforms
 import numpy as np
 import pickle
 import torch
@@ -65,7 +64,7 @@ class ArenaDataset(BasePoseTrajDataset):
         sampling_rate: int = 1,
         num_frames: int = 80,
         sliding_window: int = 1,
-        augmentations: transforms.Compose = None,
+        augmentations: "transforms.Compose" = None,
         include_testdata: bool = False,
         split_tokenization: bool = False,
         centeralign: bool = False,
@@ -80,6 +79,8 @@ class ArenaDataset(BasePoseTrajDataset):
         self.sample_frequency = self.DEFAULT_FRAME_RATE  # downsample frames if needed
 
         if augmentations:
+            from torchvision import transforms
+
             gs = (self.DEFAULT_GRID_SIZE, self.DEFAULT_GRID_SIZE)
             self.augmentations = transforms.Compose(
                 [
@@ -94,8 +95,14 @@ class ArenaDataset(BasePoseTrajDataset):
         self.load_data(include_testdata)
 
         self.split_tokenization = split_tokenization
-
-        self.preprocess()
+        if self.mode == "pretrain" or self.mode == "test":
+            self.preprocess()
+        elif self.mode == "inference":
+            for sequence in self.sequences:
+                self.interpolate_nans(sequence)
+            # check no nans           
+            for sequence in self.sequences:
+                assert not np.isnan(sequence).any(), "Inference mode does not allow NaN values in the data."
 
     def load_data(self, include_testdata) -> None:
         """Loads dataset from npz file containing keypoints dict and confidence dict ."""
@@ -116,10 +123,14 @@ class ArenaDataset(BasePoseTrajDataset):
                 test_keypoints_dict = np.load(test_path, allow_pickle=True)['keypoints'].item()
                 self.sequence_names.extend(list(test_keypoints_dict.keys()))
                 self.sequences.extend(list(test_keypoints_dict.values()))
-                
         elif self.mode == "test":
             test_path = str(self.path).replace("train", "test")
             keypoints_dict = np.load(test_path, allow_pickle=True)['keypoints'].item()
+            self.sequence_names = list(keypoints_dict.keys())
+            self.sequences = list(keypoints_dict.values())
+                
+        elif self.mode == "inference":
+            keypoints_dict = np.load(self.path, allow_pickle=True)['keypoints'].item()
             self.sequence_names = list(keypoints_dict.keys())
             self.sequences = list(keypoints_dict.values())
         else:
@@ -210,7 +221,7 @@ class ArenaDataset(BasePoseTrajDataset):
         return inputs, []
     
 
-    def interpolate_nans(sequence):
+    def interpolate_nans(self, sequence):
         """Interpolate NaN values in the sequence using linear interpolation."""
         for i in range(sequence.shape[1]):  # Iterate over keypoints
             for j in range(sequence.shape[2]):  # Iterate over dimensions
@@ -321,3 +332,15 @@ def plot_center_trajectory(keypoints, title=None):
     ax.set_title(title if title else "Trajectory of Mouse Center")
     ax.grid()
     plt.show()
+
+def extract_metadata_from_runid(run_id):
+    """Extracts metadata from the run ID string."""
+    parts = run_id.split("_")
+    metadata = {
+        "run_id": run_id,
+        "animal_id": parts[0],
+        "experimental_phase": parts[1],
+        "age": parts[2],
+        "trial_id": parts[3],
+    }
+    return metadata
