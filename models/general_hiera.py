@@ -23,6 +23,8 @@ import math
 from functools import partial
 from typing import Callable, List, Optional, Tuple
 import warnings
+from functools import reduce
+from operator import mul
 
 import numpy as np
 import torch
@@ -386,6 +388,18 @@ class GeneralizedHiera(nn.Module):
     def no_weight_decay(self):
         return ["pos_embed_spatial"]
 
+    def get_layer_token_shape(self, layer_idx: int) -> Tuple[int, ...]:
+        """Returns the spatial shape of tokens at a given layer index."""
+  
+        # First transform is patching
+        token_shape = self.patch_stride
+        # Then apply q pooling for each block up to layer_idx
+        if layer_idx >= 0:
+            for i in range(layer_idx):
+                token_shape = tuple(t * s for t, s in zip(token_shape, self.q_strides[i]))
+
+        return token_shape
+
     @staticmethod
     def _get_sinusoidal_embed(T: int, dim: int, device: torch.device) -> torch.Tensor:
         """Returns a [1, T, dim] sinusoidal positional embedding."""
@@ -456,7 +470,7 @@ class GeneralizedHiera(nn.Module):
         # Slowfast training passes in a list
         if isinstance(x, list):
             x = x[0]
-        check_hiera_dimensions(x, self.patch_kernel, self.patch_stride, self.q_strides)
+        x = check_hiera_dimensions(x, self.patch_kernel, self.patch_stride, self.q_strides)
         intermediates = []
         x = self.patch_embed(
             x,
