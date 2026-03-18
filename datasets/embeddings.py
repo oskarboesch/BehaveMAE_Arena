@@ -38,7 +38,72 @@ def _chunk_average(run_embeddings, chunk_size, stride):
     ]
     return np.stack(chunk_means, axis=0)
 
-def load_numpy_embeddings(path, num_runs=None, chunk_size=1, stride=1, meta_data_path=None):
+
+def _load_kinematics_dict(kinematics_path):
+    """Load kinematics dictionary from .npz/.npy files."""
+    if not os.path.exists(kinematics_path):
+        raise FileNotFoundError(f"Kinematics file not found: {kinematics_path}")
+
+    if kinematics_path.endswith(".npz"):
+        data = np.load(kinematics_path, allow_pickle=True)
+        if "kinematics" in data:
+            return data["kinematics"].item()
+        if len(data.files) == 1:
+            return data[data.files[0]].item()
+        raise KeyError(
+            f"Could not find 'kinematics' key in {kinematics_path}. Available keys: {data.files}"
+        )
+
+    if kinematics_path.endswith(".npy"):
+        data = np.load(kinematics_path, allow_pickle=True)
+        if isinstance(data, np.ndarray) and data.dtype == object and data.shape == ():
+            return data.item()
+        if isinstance(data, dict):
+            return data
+        raise TypeError(
+            f"Unsupported .npy kinematics structure in {kinematics_path}. Expected dict-like object."
+        )
+
+    raise ValueError(
+        f"Unsupported kinematics file extension for {kinematics_path}. Use .npz or .npy"
+    )
+
+
+def _run_kinematics_to_matrix(run_kinematics, target_len=None):
+    """Convert one run kinematics dict to (time, features) matrix.
+
+    If target_len is provided, each feature is left-padded with zeros so all
+    kinematics time series match the embeddings temporal length for that run.
+    """
+    if not isinstance(run_kinematics, dict) or len(run_kinematics) == 0:
+        if target_len is None:
+            return np.empty((0, 0), dtype=np.float32), []
+        return np.zeros((target_len, 0), dtype=np.float32), []
+
+    feature_names = list(run_kinematics.keys())
+    feature_arrays = [np.asarray(run_kinematics[name]).reshape(-1) for name in feature_names]
+
+    if target_len is None:
+        min_len = min(arr.shape[0] for arr in feature_arrays)
+        if min_len == 0:
+            return np.empty((0, len(feature_names)), dtype=np.float32), feature_names
+        stacked = np.stack([arr[:min_len] for arr in feature_arrays], axis=1)
+        return stacked, feature_names
+
+    padded_features = []
+    for arr in feature_arrays:
+        arr = arr.astype(np.float32, copy=False)
+        if arr.shape[0] < target_len:
+            pad_len = target_len - arr.shape[0]
+            arr = np.pad(arr, (pad_len, 0), mode="constant", constant_values=0)
+        elif arr.shape[0] > target_len:
+            arr = arr[:target_len]
+        padded_features.append(arr)
+
+    stacked = np.stack(padded_features, axis=1)
+    return stacked, feature_names
+
+def load_numpy_embeddings(path, num_runs=None, chunk_size=1, stride=1, meta_data_path=None, kinematics_path=None):
     """
     Load embeddings from .npy files and return a list of embeddings and metadata dataframe.
     
@@ -52,19 +117,20 @@ def load_numpy_embeddings(path, num_runs=None, chunk_size=1, stride=1, meta_data
     Returns:
         list_of_embeddings (list): List of numpy arrays containing the embeddings for each run.
         metadata_df (pd.DataFrame or None): DataFrame containing the metadata and frame_number map additional metadata if meta_data_path is provided.
+        chunked_kinematics (np.ndarray or None): Chunk-averaged kinematics aligned by selected runs if kinematics_path is provided.
     """
     list_of_embeddings = []
 
     # List all test files in the directory, there is one for each embedding layer.
     npy_files = [
-        f for f in os.listdir(path) if f.startswith("test_submission") and f.endswith(".npy")
+        f for f in os.listdir(path) if f.startswith("embeddings_layer_") and f.endswith(".npy")
     ]
     if len(npy_files) == 0:
-        raise FileNotFoundError(f"No test_submission*.npy files found in: {path}")
+        raise FileNotFoundError(f"No embeddings_layer_*.npy files found in: {path}")
 
     def _layer_sort_key(filename):
         stem = os.path.splitext(filename)[0]
-        suffix = stem.split("test_submission")[-1]
+        suffix = stem.split("embeddings_layer_")[-1]
         digits = "".join(ch for ch in suffix if ch.isdigit())
         return (0, int(digits)) if digits else (1, stem)
 
@@ -152,6 +218,60 @@ def load_numpy_embeddings(path, num_runs=None, chunk_size=1, stride=1, meta_data
 
     metadata_df = pd.DataFrame(metadata_rows)
 
+    chunked_kinematics = None
+    kinematics_feature_names = None
+    kinematics_new_ranges = {}
+    if kinematics_path is not None:
+        kinematics_dict = _load_kinematics_dict(kinematics_path)
+        kinematics_chunks = []
+        cursor = 0
+
+        for run_id in selected_run_ids:
+            if run_id not in kinematics_dict:
+                raise KeyError(f"Run '{run_id}' missing from kinematics data.")
+
+            run_start, run_end = canonical_map[run_id]
+            target_len = int(run_end - run_start)
+            run_matrix, run_feature_names = _run_kinematics_to_matrix(
+                kinematics_dict[run_id],
+                target_len=target_len,
+            )
+            if kinematics_feature_names is None:
+                kinematics_feature_names = run_feature_names
+            elif run_feature_names != kinematics_feature_names:
+                raise ValueError(
+                    f"Kinematics feature mismatch for run '{run_id}'. "
+                    f"Expected {kinematics_feature_names}, got {run_feature_names}."
+                )
+
+            run_chunked_kinematics = _chunk_average(
+                run_matrix,
+                chunk_size=chunk_sizes[0],
+                stride=strides[0],
+            )
+
+            expected_start, expected_end = per_layer_new_ranges[0][run_id]
+            expected_chunks = expected_end - expected_start
+            if len(run_chunked_kinematics) != expected_chunks:
+                raise ValueError(
+                    f"Chunked kinematics length mismatch for run '{run_id}': "
+                    f"got {len(run_chunked_kinematics)}, expected {expected_chunks}."
+                )
+
+            kinematics_chunks.append(run_chunked_kinematics)
+
+            kinematics_new_ranges[run_id] = (cursor, cursor + len(run_chunked_kinematics))
+            cursor += len(run_chunked_kinematics)
+
+        if len(kinematics_chunks) == 0:
+            num_features = 0 if kinematics_feature_names is None else len(kinematics_feature_names)
+            chunked_kinematics = np.empty((0, num_features), dtype=np.float32)
+        else:
+            chunked_kinematics = np.concatenate(kinematics_chunks, axis=0)
+
+        if len(metadata_df) > 0:
+            metadata_df["new_frame_range_kinematics"] = metadata_df["run_id"].map(kinematics_new_ranges)
+
     if meta_data_path is not None and len(metadata_df) > 0:
         mdata_df = pd.read_csv(meta_data_path, sep="\t")
         if "animal_id" in mdata_df.columns and "strain" in mdata_df.columns:
@@ -188,4 +308,12 @@ def load_numpy_embeddings(path, num_runs=None, chunk_size=1, stride=1, meta_data
     if len(metadata_df) > 0:
         print(f"Metadata columns: {list(metadata_df.columns)}")
 
-    return list_of_embeddings, metadata_df
+    if chunked_kinematics is not None:
+        print(
+            "Kinematics: "
+            f"shape={chunked_kinematics.shape}, "
+            f"features={kinematics_feature_names}, "
+            f"chunk_size={chunk_sizes[0]}, stride={strides[0]}"
+        )
+
+    return list_of_embeddings, metadata_df, chunked_kinematics
