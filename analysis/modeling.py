@@ -7,9 +7,9 @@ from sklearn.preprocessing import StandardScaler
 from .preprocessing.preprocess_metadata import preprocess_metadata
 from .preprocessing.preprocess_kinematics import preprocess_kinematics
 from .preprocessing.preprocess_syllables import preprocess_syllables
-from .utils.get_stats_report import get_stats_report
 from .utils.run_kfold_cv import run_kfold_cv
 from .plot.plot_2D import plot_2D
+from .plot.plot_1D import plot_1D
 from .plot.plot_class_distribution import plot_class_distribution
 from .utils.get_best_dims import get_best_dims
 
@@ -21,6 +21,8 @@ def modeling(embeddings, metadata, kinematics, syllable_labels, token_shapes, ar
     meta_results = {}
     kinematics_results = {}
     output_dir = os.path.join(args.output_dir, data_type)
+    plot_1D(embeddings, token_shapes, kinematics=kinematics, output_path=os.path.join(output_dir, "figures", "plot_1D.png"))    
+
     for layer_key, embeddings_dict in embeddings.items():
         fig_dir = os.path.join(output_dir, "figures", layer_key)
         os.makedirs(fig_dir, exist_ok=True)
@@ -44,9 +46,10 @@ def modeling(embeddings, metadata, kinematics, syllable_labels, token_shapes, ar
             ])
             dummy_model = DummyClassifier(strategy="most_frequent")
             run_kfold_cv(layer_meta_results, meta_var, model, dummy_model, X, y, groups=groups, is_classification=True)
-            # get the dimensions with the highest absolute coefficient values and plot them
-            dims = get_best_dims(layer_meta_results[meta_var], n_plot_features=X_plot.shape[1])
+            dims = get_best_dims(layer_meta_results[meta_var], n_plot_features=X.shape[1])
             plot_2D(X_plot, y_plot, is_discrete=True, dims=dims, title=f"{meta_var} - {layer_key}", output_path=os.path.join(fig_dir, f"{meta_var}_{layer_key}.png"))
+
+            # get the dimensions with the highest absolute coefficient values and plot them
 
 
         
@@ -86,13 +89,15 @@ def modeling(embeddings, metadata, kinematics, syllable_labels, token_shapes, ar
 
 
 
-    # Save results
-    os.makedirs(output_dir, exist_ok=True)
-    results_file = os.path.join(output_dir, "embedding_analysis_meta_results.json")
-    with open(results_file, "w") as f:
-        json.dump(meta_results, f, indent=4)
-    print(f"Saved metadata embedding analysis results to {results_file}")
-    kin_results_file = os.path.join(output_dir, "embedding_analysis_kinematics_results.json")
-    with open(kin_results_file, "w") as f:
-        json.dump(kinematics_results, f, indent=4)
-    print(f"Saved kinematics embedding analysis results to {kin_results_file}")
+    # Save results 
+    if metadata_keys is not []:
+        os.makedirs(output_dir, exist_ok=True)
+        results_file = os.path.join(output_dir, "embedding_analysis_meta_results.json")
+        with open(results_file, "w") as f:
+            json.dump(meta_results, f, indent=4)
+        print(f"Saved metadata embedding analysis results to {results_file}")
+    if kinematics is not None:
+        kin_results_file = os.path.join(output_dir, "embedding_analysis_kinematics_results.json")
+        with open(kin_results_file, "w") as f:
+            json.dump(kinematics_results, f, indent=4)
+        print(f"Saved kinematics embedding analysis results to {kin_results_file}")

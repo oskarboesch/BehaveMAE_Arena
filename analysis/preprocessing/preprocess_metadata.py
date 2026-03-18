@@ -38,8 +38,9 @@ def preprocess_metadata(args, embeddings_dict, metadata, meta_var, token_shape, 
         # sample randomly args.n_windows windows 
         if n_windows < args.n_windows_per_run_for_metadata:
             raise ValueError(f"Not enough windows ({n_windows}) for run_id {run_id} to sample {args.n_windows_per_run_for_metadata} windows for metadata classification. Consider reducing the number of windows per run or adjusting the window size/stride.")
-        indices = np.random.choice(n_windows, args.n_windows_per_run_for_metadata, replace=False)
-        emb = emb[indices]
+        if args.n_windows_per_run_for_metadata > 0:
+            indices = np.random.choice(n_windows, args.n_windows_per_run_for_metadata, replace=False)
+            emb = emb[indices]
         n_windows = len(emb)
 
         X_plot.append(emb)   
@@ -53,6 +54,8 @@ def preprocess_metadata(args, embeddings_dict, metadata, meta_var, token_shape, 
     y_plot = np.concatenate(y_plot, axis=0)   # (n_total_windows,)
     y = np.array(y)                            # (n_runs,)
     groups = np.array(groups)                  # (n_runs,)
+    print(f"Preprocessed metadata for {meta_var}: X shape {X.shape}, y shape {y.shape}, groups shape {groups.shape}")
+    print(f"Plotting metadata for {meta_var}: X_plot shape {X_plot.shape}, y_plot shape {y_plot.shape}")
 
     if meta_var == "strain":
         valid_strains = metadata["strain"].value_counts()[metadata["strain"].value_counts() >= args.min_vids_per_strain].index.tolist()

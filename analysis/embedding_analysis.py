@@ -1,8 +1,11 @@
 import argparse
 
 from .preprocessing.load_data import load_data
+from .preprocessing.apply_pca import apply_pca
+from .cluster import cluster
 from .manifold_analysis import manifold_analysis
 from .modeling import modeling
+import os
 from .utils.save_args import save_args
 
 def get_args_parser():
@@ -11,6 +14,11 @@ def get_args_parser():
         "--dataset",
         default="arena",
         help="dataset name (arena, shot7m2, mabe_mice, hbabel)",
+    )
+    parser.add_argument(
+        "--per_layer_embeddings",
+        action="store_true",
+        help="whether to load embeddings per layer",
     )
     parser.add_argument(
         "--path_to_emb_dir",
@@ -44,10 +52,56 @@ def get_args_parser():
         help="minimum number of videos necessary to include a strain in the analysis (to avoid class imbalance issues)",
     )
     parser.add_argument(
-        "--ndim_for_cluster_silhouette",
+        "--ndim_for_cluster",
         default=50,
         type=int,
         help="number of dimensions to keep for the cluster silouhette analysis",
+    )
+    parser.add_argument(
+        "--silhouette_ds_rate",
+        default=1,
+        type=int,
+        help="downsampling rate for silhouette score calculation (to avoid long compute time)",
+    )
+    parser.add_argument(
+        "--kmeans_k_range",
+        default=(2, 11),
+        nargs=2,
+        type=int,
+        help="range of k values for KMeans clustering",
+    )
+    parser.add_argument(
+        "--kmeans_ks",
+        default=[],
+        nargs="+",
+        type=int,
+        help="list of k values per layer for KMeans clustering",
+    )
+    parser.add_argument(
+        "--dbscan_eps_range",
+        default=(0.1, 4.1),
+        nargs=2,
+        type=float,
+        help="range of eps values for DBSCAN clustering",
+    )
+    parser.add_argument(
+        "--dbscan_min_samples",
+        default=50,
+        type=int,
+        help="minimum number of samples for DBSCAN clustering",
+    )
+    parser.add_argument(
+        "--dbscan_eps",
+        default=[],
+        nargs="+",
+        type=float,
+        help="list of eps values per layer for DBSCAN clustering",
+    )
+    parser.add_argument(
+        "--pca_dims",
+        default=70,
+        type=int,
+        help="Minimum number of dimensions when pca is applied to reduce dimensionality",
     )
     parser.add_argument(
         "--agg_method",
@@ -80,7 +134,7 @@ def get_args_parser():
     )
     parser.add_argument(
         "--n_windows_per_run_for_metadata",
-        default=10,
+        default=-1,
         type=int,
         help="number of windows to consider per run for metadata classification"
     )
@@ -115,16 +169,17 @@ def get_args_parser():
 def embedding_analysis(args):
     embeddings, token_shapes, metadata, kinematics, syllable_labels = load_data(args)
 
+    apply_pca(embeddings, n_components=args.pca_dims, output_dir=args.output_dir)
     # Manifold extraction (TSNE, UMAP) and visualization of the embeddings colored by metadata variables (e.g. strain)
-    tsne_embeddings, umap_embeddings, layer_window_maps = manifold_analysis(embeddings, args, token_shapes)
-
+    # tsne_embeddings, umap_embeddings, layer_window_maps = manifold_analysis(embeddings, args, token_shapes)
+    cluster(args, embeddings)
 
     # Linear/logistic regression analysis to predict metadata variables from the embeddings
     modeling(embeddings, metadata, kinematics, syllable_labels, token_shapes, args, data_type="raw")
 
     # Linear/logistic regression on umap and tsne
-    modeling(umap_embeddings, metadata, kinematics, syllable_labels, token_shapes, args, layer_window_maps, data_type="umap")
-    modeling(tsne_embeddings, metadata, kinematics, syllable_labels, token_shapes, args, layer_window_maps, data_type="tsne")
+    # modeling(umap_embeddings, metadata, kinematics, syllable_labels, token_shapes, args, layer_window_maps, data_type="umap")
+    # modeling(tsne_embeddings, metadata, kinematics, syllable_labels, token_shapes, args, layer_window_maps, data_type="tsne")
 
 
     # TODO (PCA if too many dimensins, add clustering analysis, silhouette scores, etc.) 

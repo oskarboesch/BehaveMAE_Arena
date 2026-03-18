@@ -10,8 +10,8 @@ def manifold_analysis(embeddings, args, token_shapes):
     layer_window_maps = {}
     
     for layer_key, embeddings_dict in tqdm(embeddings.items(), desc="Manifold Processing layers"):
-        layer_window = args.window_size_manifold // token_shapes[int(layer_key.split("_")[-1])][0]  # convert window size from frames to tokens
-        layer_stride = args.window_stride_manifold // token_shapes[int(layer_key.split("_")[-1])][0]  # convert stride from frames to tokens
+        layer_window = max(1, args.window_size_manifold // token_shapes[int(layer_key.split("_")[-1])][0])  # convert window size from frames to tokens
+        layer_stride = max(1, args.window_stride_manifold // token_shapes[int(layer_key.split("_")[-1])][0])  # convert stride from frames to tokens
         embeddings_windowed, window_map = window_and_aggregate(embeddings_dict, window_size=layer_window, stride=layer_stride, method=args.agg_method)
         X = np.concatenate(list(embeddings_windowed.values()), axis=0)
 
