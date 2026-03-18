@@ -429,7 +429,7 @@ def extract_hierarchical_embeddings(args):
                 vec_seq = vec_seq.reshape(vec_seq.shape[0], mice.NUM_MICE, 12, 2)
                 vec_seq = mice.transform_to_centeralign_components(vec_seq)
             else :
-                vec_seq = dataset.featurise_keypoints(vec_seq, windowed=False)
+                vec_seq = dataset.featurise_keypoints(vec_seq)
 
 
         full_seq_len = vec_seq.shape[0]
