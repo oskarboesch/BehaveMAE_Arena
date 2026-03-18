@@ -14,7 +14,6 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from torchvision import transforms
 
 from .augmentations import GaussianNoise
 from .pose_traj_dataset import BasePoseTrajDataset
@@ -80,7 +79,7 @@ class SHOT7M2Dataset(BasePoseTrajDataset):
         sampling_rate: int = 1,
         num_frames: int = 80,
         sliding_window: int = 1,
-        augmentations: transforms.Compose = None,
+        augmentations: "transforms.Compose" = None,
         include_testdata: bool = False,
         split_tokenization: bool = False,
         **kwargs
@@ -88,6 +87,7 @@ class SHOT7M2Dataset(BasePoseTrajDataset):
         super().__init__(
             path_to_data_dir, scale, sampling_rate, num_frames, sliding_window, **kwargs
         )
+        from torchvision import transforms
 
         self.sample_frequency = self.DEFAULT_FRAME_RATE  # downsample frames if needed
 
@@ -121,6 +121,8 @@ class SHOT7M2Dataset(BasePoseTrajDataset):
             self.raw_data = np.load(
                 self.path.replace("train", "test"), allow_pickle=True
             ).item()
+        elif self.mode =="inference":
+            self.raw_data = np.load(self.path, allow_pickle=True).item()
         else:
             raise ValueError("Invalid mode: {}".format(self.mode))
 
@@ -133,6 +135,20 @@ class SHOT7M2Dataset(BasePoseTrajDataset):
         Does initial preprocessing on entire dataset.
         """
         sequences = self.raw_data["sequences"]["keypoints"]
+        if self.mode == "inference":
+            self.sequences, self.sequence_names = list(sequences.values()), list(sequences.keys())
+            if self.split_tokenization:
+                self.sequences = [seq[:, :, self.SPLIT_INDS] for seq in self.sequences]
+                self.NUM_KEYPOINTS = self.NUM_KEYPOINTS - 2
+                self.KEYFRAME_SHAPE = (
+                    self.NUM_INDIVIDUALS,
+                    self.NUM_KEYPOINTS,
+                    self.KPTS_DIMENSIONS,
+                )
+            self.sequences = [vec_seq.reshape(1, 1, vec_seq.shape[0], 1, -1) for vec_seq in self.sequences]
+
+            return
+
 
         seq_keypoints = []
         keypoints_ids = []
