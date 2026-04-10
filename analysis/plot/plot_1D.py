@@ -55,6 +55,10 @@ def plot_1D(
 
     # ── embedding heatmaps ────────────────────────────────────────────────────
     for row_idx, layer_key in enumerate(layer_keys):
+        # let's not plot temporal for layers with only 1 data per sequence they have token_shape[0] = -1
+        if token_shapes[row_idx][0] == -1:
+            print(f"Skipping layer {layer_key} for 1D plot since it has token_shapes {token_shapes[row_idx]} indicating no temporal dimension.")
+            continue
         ax = axes[row_idx]
 
         layer_idx = int(layer_key.split("_")[-1])

@@ -1,7 +1,17 @@
 
 import numpy as np
 def get_best_dims(result, n_plot_features=None):
-    coefs = np.array(result["coefs"])
+    raw_coefs = result["coefs"]
+
+    # Check for None BEFORE wrapping in np.array
+    if raw_coefs is None:
+        return np.array([0, 1]) if n_plot_features is None or n_plot_features > 1 else np.array([0])
+
+    coefs = np.array(raw_coefs)
+
+    # if coefs are all zeros, return default dims
+    if np.all(coefs == 0):
+        return np.array([0, 1]) if n_plot_features is None or n_plot_features > 1 else np.array([0])
 
     # Convert to a 1D importance vector across modeled features.
     if coefs.ndim == 2:
@@ -24,4 +34,5 @@ def get_best_dims(result, n_plot_features=None):
         return np.array([0, 0])
 
     dims = np.argsort(coef_importance)[-2:]
-    return dims
+    # return dims
+    return (0,1) # for now let's only plot the first two dimensions, since the importance-based dims are not always stable across runs

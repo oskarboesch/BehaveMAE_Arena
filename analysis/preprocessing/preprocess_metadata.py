@@ -1,45 +1,46 @@
 from analysis.utils.window_and_aggregate import window_and_aggregate
 import numpy as np
 
-def preprocess_metadata(args, embeddings_dict, metadata, meta_var, token_shape, window_map):
-    if window_map is not None:
-        # some window has been applied to raw data during manifold process
-        down_factor = args.window_size_manifold * token_shape[0]
-    else :
-        down_factor = token_shape[0]
-    
-    layer_window = max(1, args.window_size_metadata // down_factor)
-    layer_stride = max(1, args.window_stride_metadata // down_factor)
-
-    embeddings_windowed, _ = window_and_aggregate(
-        embeddings_dict,
-        window_size=layer_window,
-        stride=layer_stride,
-        method=args.agg_method
-    )
+def preprocess_metadata(args, embeddings_dict, metadata, meta_var, token_shape):    
 
     X = []
     X_plot = []  # for plotting only, not used in modeling
     y = []
     y_plot = []  # for plotting only, not used in modeling
     groups = []
+    if args.n_windows_per_run_for_metadata == -1:
+        min_n_windows = min(emb.shape[0] for emb in embeddings_dict.values())
+        print(f"Using the minimum number of windows across all runs for metadata classification: {min_n_windows}")
 
-    for run_id, emb in embeddings_windowed.items():  # iterate over windowed embeddings
+
+    for run_id, emb in embeddings_dict.items():  # iterate over windowed embeddings
         run_metadata = metadata[metadata["run_id"] == run_id]
         if len(run_metadata) == 0:
             print(f"No metadata found for run_id {run_id}, skipping.")
             continue
         elif len(run_metadata) > 1:
             print(f"Multiple metadata entries found for run_id {run_id}, using the first one.")
-
         meta_value = run_metadata.iloc[0][meta_var]
+        if meta_value == "Unknown":
+            continue
         animal_id = run_metadata.iloc[0]["animal_id"]
         n_windows = len(emb)
         # sample randomly args.n_windows windows 
         if n_windows < args.n_windows_per_run_for_metadata:
-            raise ValueError(f"Not enough windows ({n_windows}) for run_id {run_id} to sample {args.n_windows_per_run_for_metadata} windows for metadata classification. Consider reducing the number of windows per run or adjusting the window size/stride.")
-        if args.n_windows_per_run_for_metadata > 0:
-            indices = np.random.choice(n_windows, args.n_windows_per_run_for_metadata, replace=False)
+            if token_shape[0] == -1:
+                n_windows_to_sample = 1 # if per sequence embedding we have only one "window" per run, so we set n_windows_per_run_for_metadata to 1 to avoid errors, but this also means we won't be able to sample multiple windows for metadata classification, which may limit the performance of the metadata classification. Consider adjusting the window size/stride or using a different embedding method that allows for more windows per run.
+            else:
+                print(f"Not enough windows ({n_windows}) for run_id {run_id} to sample {args.n_windows_per_run_for_metadata} windows for metadata classification. Consider reducing the number of windows per run or adjusting the window size/stride.")
+                continue
+        else :
+            if args.n_windows_per_run_for_metadata == -1:
+                n_windows_to_sample = min_n_windows  # use the minimum number of windows across all runs to ensure balanced sampling
+            else:
+                n_windows_to_sample = args.n_windows_per_run_for_metadata
+
+        if n_windows_to_sample> 0:
+            rng = np.random.default_rng(args.seed)
+            indices = rng.choice(n_windows, n_windows_to_sample, replace=False)
             emb = emb[indices]
         n_windows = len(emb)
 
@@ -66,5 +67,14 @@ def preprocess_metadata(args, embeddings_dict, metadata, meta_var, token_shape, 
         y = y[valid_indices]
         y_plot = y_plot[valid_indices] # note: index mismatch if n_windows != 1, see below
         groups = groups[valid_indices]
+
+    # if X is too large, we need need to apply PCA before modeling
+    if X.shape[1] > 50:
+        print(f"Applying PCA to reduce dimensionality of X from {X.shape[1]} to 50 for metadata classification.")
+        from sklearn.decomposition import PCA
+        pca = PCA(n_components=50, random_state=args.seed)
+        X = pca.fit_transform(X)
+        print(f"Total Explained variance ratio of PCA components for metadata classification: {pca.explained_variance_ratio_.sum():.4f}")
+        # Note: we do not apply PCA to X_plot since it's only used for visualization and we want to keep the original embedding space for that.
 
     return X, y, groups, X_plot, y_plot

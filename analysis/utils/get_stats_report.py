@@ -18,5 +18,6 @@ def get_stats_report(X, y, is_classification=True):
     else:
         model_sm = sm.OLS(y, X_scaled)
         result = model_sm.fit(method="pinv")
+        print(f"Running OLS regression for kinematic variable with {X.shape[0]} samples and {X.shape[1]} features. R2: {result.rsquared:.4f}")
 
     return result
