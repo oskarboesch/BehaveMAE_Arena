@@ -26,6 +26,8 @@ from iopath.common.file_io import g_pathmgr as pathmgr
 from numpy.lib.stride_tricks import sliding_window_view
 from sklearn.decomposition import PCA, IncrementalPCA
 from tqdm import tqdm
+import pickle
+
 
 import util.misc as misc
 from datasets import hbabel as hbabel
@@ -157,6 +159,27 @@ def get_args_parser():
 
     parser.add_argument("--fill_holes", default=False, type=str2bool)
     parser.add_argument("--centeralign", action="store_true")
+    parser.add_argument(
+        "--pos_only",
+        action="store_true",
+        help="Use only center position and orientation features for Arena centeralign mode.",
+    )
+    parser.add_argument(
+        "--no_pos",
+        action="store_true",
+        help="Drop absolute position features and keep only non-position centeralign features.",
+    )
+    parser.add_argument(
+        "--subsample_keypoints",
+        action="store_true",
+        help="For Arena, keep only a subset of keypoints (e.g. head and body) to reduce input dimensionality.",
+    )   
+    parser.add_argument(
+        "--max_nan_frac",
+        default=0.0,
+        type=float,
+        help="Maximum fraction of NaN values allowed in a sequence before it's discarded. Applied after featurization and before embedding extraction.",
+    )
 
     parser.add_argument("--no_qkv_bias", action="store_true")
     parser.add_argument("--sep_pos_embed", action="store_true")
@@ -277,8 +300,6 @@ def extract_hierarchical_embeddings(args):
     if args.dataset == "shot7m2":
         submission_clips = np.load(args.path_to_data_dir, allow_pickle=True).item()
         submission_clips["sequences"] = submission_clips["sequences"]["keypoints"]
-        # take only the first 2 elements
-        submission_clips["sequences"] = dict(list(submission_clips["sequences"].items())[:2])
 
         num_animals = 1
         max_frame_emb_size = 64
@@ -335,7 +356,8 @@ def extract_hierarchical_embeddings(args):
         fill_holes = arena.ArenaDataset.fill_holes
         grid_size = arena.ArenaDataset.DEFAULT_GRID_SIZE
         dataset = arena.ArenaDataset(mode='pretrain', path_to_data_dir='/scratch/izar/boesch/data/Arena_Data/shuffle-3_split-test.npz', 
-                                     centeralign=args.centeralign, num_frames=args.num_frames)
+                                     centeralign=args.centeralign, pos_only=args.pos_only, no_pos=args.no_pos, num_frames=args.num_frames, subsample_keypoints=args.subsample_keypoints, 
+                                     max_nan_frac=args.max_nan_frac)
         max_frame_emb_size = 64
         nr_test_frames = (sum(len(seq) for seq in submission_clips["sequences"].values())) 
     else:
@@ -383,6 +405,8 @@ def extract_hierarchical_embeddings(args):
     sub_seq_length = args.num_frames
     if args.fast_inference and args.num_frames % 2 == 0:
         sliding_window = 2
+        if args.dataset == "arena":
+            sliding_window = 1
     else:
         sliding_window = 1
     start_idx = 0
@@ -406,7 +430,8 @@ def extract_hierarchical_embeddings(args):
                 features = features.transpose(1, 2, 3, 0).squeeze()
             vec_seq = features
         elif args.dataset == "arena":
-            vec_seq = arena.ArenaDataset.interpolate_nans(sequence)
+            # Keep temporal dimension as first axis: [T, F]
+            vec_seq = dataset.interpolate_nans(sequence).reshape(sequence.shape[0], -1)
         else:
             vec_seq = sequence["keypoints"]
 
@@ -615,7 +640,9 @@ def extract_hierarchical_embeddings(args):
 
         submission = {"frame_number_map": frame_number_map, "embeddings": embs_pca}
 
-        np.save(os.path.join(args.output_dir, f"test_submission_{lv}.npy"), submission)
+        out_path = os.path.join(args.output_dir, f"test_submission_{lv}.npy")
+        with open(out_path, 'wb') as f:
+            pickle.dump(submission, f, protocol=4)
 
         embs.flush()
         del embs
