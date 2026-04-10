@@ -7,6 +7,7 @@ import networkx as nx
 import matplotlib.cm as cm
 import scipy.stats as stats
 from statsmodels.stats.multitest import multipletests
+from ..plot.plot_kinematics_per_cluster import plot_kinematics_per_cluster
 
 def analyze_cluster_labels(cluster_labels, flat_index_map, metadata, kinematics, time_window_size, output_dir, skip_metadata=["strain"]):
     """
@@ -215,6 +216,11 @@ def analyze_cluster_labels(cluster_labels, flat_index_map, metadata, kinematics,
                     
         with open(os.path.join(output_dir, "mean_kinematics_per_cluster.json"), "w") as f:
             json.dump(kinematics_results, f, indent=4)
+
+        plot_kinematics_per_cluster(
+            kinematics_results,
+            output_path=os.path.join(output_dir, "mean_kinematics_per_cluster.png")
+        )
         
     # =========================================================================
     # Analysis 4: Cluster Transition Graphs
