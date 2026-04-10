@@ -220,9 +220,9 @@ class BasePoseTrajDataset(torch.utils.data.Dataset):
 
         return data.reshape(-1, state_dim * 2)
 
-    def transform_to_centered_data(self, data, center_index):
+    def transform_to_centered_data(self, data, center_index, tail_base_index=None, neck_index=None):
         # implemented only for mice
-
+        num_kpts = data.shape[2]
         # data shape is seq_len, num_inds, num_kpts, kpts_dims -> seq_len*num_inds, num_kpts, kpts_dims
         data = data.reshape(-1, *data.shape[2:])
 
@@ -236,8 +236,8 @@ class BasePoseTrajDataset(torch.utils.data.Dataset):
 
 
         # Rotate such that keypoints Tail base and neck are parallel with the y axis
-        tail_base = self.BODY_PART_2_INDEX["tail_base"]
-        neck = self.BODY_PART_2_INDEX["neck"]
+        tail_base = self.BODY_PART_2_INDEX["tail_base"] if tail_base_index is None else tail_base_index
+        neck = self.BODY_PART_2_INDEX["neck"] if neck_index is None else neck_index
         mouse_rotation = np.arctan2(
             data[:, tail_base, 0] - data[:, neck, 0],
             data[:, tail_base, 1] - data[:, neck, 1],
@@ -262,7 +262,7 @@ class BasePoseTrajDataset(torch.utils.data.Dataset):
         centered_data = np.matmul(R, centered_data.transpose(0, 2, 1))
         centered_data = centered_data.transpose((0, 2, 1))
 
-        centered_data = centered_data.reshape((-1, (self.NUM_KEYPOINTS - 1) * self.KPTS_DIMENSIONS))
+        centered_data = centered_data.reshape((-1, (num_kpts - 1) * self.KPTS_DIMENSIONS))
 
         # Normalize centered_data by grid size to put in comparable scale to center
         arena_half = float(self.DEFAULT_GRID_SIZE) / 2.0
@@ -272,11 +272,11 @@ class BasePoseTrajDataset(torch.utils.data.Dataset):
         # centered_data = centered_data - mean
         return mouse_center, mouse_rotation, centered_data
 
-    def transform_to_centeralign_components(self, data, center_index=7):
+    def transform_to_centeralign_components(self, data, center_index=7, tail_base_index=None, neck_index=None):
         seq_len, num_mice = data.shape[:2]
 
         mouse_center, mouse_rotation, centered_data = self.transform_to_centered_data(
-            data, center_index
+            data, center_index, tail_base_index, neck_index
         )
 
         # Normalize the center position to be position-invariant
