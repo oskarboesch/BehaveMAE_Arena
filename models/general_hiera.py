@@ -443,7 +443,7 @@ class GeneralizedHiera(nn.Module):
 
         return mask.bool()
 
-    def get_pos_embed(self, T_tokens: int) -> torch.Tensor:
+    def get_pos_embed_old(self, T_tokens: int) -> torch.Tensor:
         temporal_embed = self._get_sinusoidal_embed(
             T_tokens,
             self.pos_embed_spatial.shape[-1],
@@ -456,12 +456,30 @@ class GeneralizedHiera(nn.Module):
             self.tokens_spatial_shape[0] * self.tokens_spatial_shape[1],
             dim=1,
         )
+    def get_pos_embed(self, T_tokens: int) -> torch.Tensor:
+        T_period = self.mask_unit_size[0]  # temporal period = mask unit temporal size
+        # generate one period of sinusoidal embed
+        temporal_embed = self._get_sinusoidal_embed(
+            T_period,
+            self.pos_embed_spatial.shape[-1],
+            self.pos_embed_spatial.device,
+        )  # (1, T_period, D)
 
+        # tile to cover T_tokens by repeating and slicing
+        n_repeats = math.ceil(T_tokens / T_period)
+        temporal_embed = temporal_embed.repeat(1, n_repeats, 1)[:, :T_tokens, :]  # (1, T_tokens, D)
+
+        return self.pos_embed_spatial.repeat(1, T_tokens, 1) + torch.repeat_interleave(
+            temporal_embed,
+            self.tokens_spatial_shape[0] * self.tokens_spatial_shape[1],
+            dim=1,
+        )
     def forward(
         self,
         x: torch.Tensor,
         mask: torch.Tensor = None,
         return_intermediates: bool = False,
+        inference = False
     ) -> torch.Tensor:
         """
         mask should be a boolean tensor of shape [B, #MUt*#MUy*#MUx] where #MU are the number of mask units in that dim.
@@ -470,7 +488,8 @@ class GeneralizedHiera(nn.Module):
         # Slowfast training passes in a list
         if isinstance(x, list):
             x = x[0]
-        x = check_hiera_dimensions(x, self.patch_kernel, self.patch_stride, self.q_strides)
+        if inference:
+            x = check_hiera_dimensions(x, self.patch_kernel, self.patch_stride, self.q_strides) # need to pad the window to be divisible by q pooling and patch embedding
         intermediates = []
         x = self.patch_embed(
             x,
@@ -485,6 +504,8 @@ class GeneralizedHiera(nn.Module):
         x = x + self.get_pos_embed(T_tokens)
         x = self.unroll(x)
 
+        if mask is not None and mask.sum() == 0:
+            raise ValueError("All tokens are masked! Adjust the mask or use a smaller mask_ratio.")
         # Discard masked tokens
         if mask is not None:
             x = x[mask[..., None].tile(1, self.mu_size, x.shape[2])].view(
@@ -493,7 +514,6 @@ class GeneralizedHiera(nn.Module):
 
         for i, blk in enumerate(self.blocks):
             x = blk(x)  
-
             if return_intermediates and i in self.stage_ends:
                 intermediates.append(
                     self.projections[len(intermediates)](self.reroll(x, i, mask=mask))
