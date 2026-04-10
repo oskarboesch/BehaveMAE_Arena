@@ -109,6 +109,7 @@ class HBehaveMAE(GeneralizedHiera):
             )
         self.multi_scale_fusion_heads.append(nn.Identity())  # final stage, no transform
 
+
         # --------------------------------------------------------------------------
         # MAE decoder specifics
         self.decoder_embed = nn.Linear(encoder_dim_out, decoder_embed_dim)
@@ -226,6 +227,33 @@ class HBehaveMAE(GeneralizedHiera):
 
         return label
 
+    def unpatch_label_3d(self, pred: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        B = pred.shape[0]
+        h_num_blocks, w_num_blocks = self.tokens_spatial_shape_final
+        t_num_blocks = mask.shape[1] // (h_num_blocks * w_num_blocks)
+
+        h_patch = self.patch_stride[1]
+        w_patch = self.patch_stride[2]
+        C = 1
+        t_patch = pred.shape[2] // (h_patch * w_patch * C)
+
+        # step 1: undo final reshape → (B, C, t_num_blocks, h_num_blocks, w_num_blocks, t_patch, h_patch, w_patch)
+        out = pred.view(B, t_num_blocks, h_num_blocks, w_num_blocks, t_patch, h_patch, w_patch, C)
+
+        # step 2: undo permute(0,1,2,4,6,3,5,7)
+        # current order: (B, T//t, H//h, W//w, t, h, w, C) → indices 0,1,2,3,4,5,6,7
+        # need:          (B, C,   T//t,  t,   H//h, h, W//w, w)
+        # i.e. permute(0, 7, 1, 4, 2, 5, 3, 6)
+        out = out.permute(0, 7, 1, 4, 2, 5, 3, 6)
+
+        # step 3: undo view → (B, C, T, H, W)
+        out = out.contiguous().view(
+            B, C,
+            t_num_blocks * t_patch,
+            h_num_blocks * h_patch,
+            w_num_blocks * w_patch,
+        )
+        return out.squeeze(0).squeeze(0) # remove batch and channel dim
     def forward_encoder(
         self, x: torch.Tensor, mask_ratio: float, mask: Optional[torch.Tensor] = None
     ) -> Tuple[torch.Tensor, torch.Tensor]:
