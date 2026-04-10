@@ -2,13 +2,11 @@ from pathlib import Path
 import numpy as np
 import pickle
 import torch
+from tqdm import tqdm
 
 from .pose_traj_dataset import BasePoseTrajDataset
 from .augmentations import GaussianNoise, Rotation, Reflect
-from matplotlib.collections import LineCollection
 
-
-import matplotlib.pyplot as plt
 
 class ArenaDataset(BasePoseTrajDataset):
     """
@@ -52,7 +50,29 @@ class ArenaDataset(BasePoseTrajDataset):
         "tail_end",
         "head_midpoint"
     ] 
-
+    SUBSAMPLED_KEYPOINTS = [
+        "nose",
+        "neck",
+        "left_shoulder",
+        "right_shoulder",
+        "mouse_center",
+        "left_hip",
+        "right_hip",
+        "tail_base",
+        "tail3",
+        "tail_end",
+    ]
+    SKELETON_CONNECTIONS = [
+        ("nose",          "neck"),
+        ("neck",          "left_shoulder"),
+        ("neck",          "right_shoulder"),
+        ("neck", "mouse_center"),
+        ("mouse_center",  "left_hip"),
+        ("mouse_center",  "right_hip"),
+        ("mouse_center",      "tail_base"),
+        ("tail_base",     "tail3"),
+        ("tail3",         "tail_end"),
+    ]
     BODY_PART_2_INDEX = {w: i for i, w in enumerate(STR_BODY_PARTS)}
 
 
@@ -68,6 +88,10 @@ class ArenaDataset(BasePoseTrajDataset):
         include_testdata: bool = False,
         split_tokenization: bool = False,
         centeralign: bool = False,
+        pos_only: bool = False,
+        no_pos: bool = False,
+        max_nan_frac: float = 0.0,
+        subsample_keypoints: bool = False,
         **kwargs
     ):
         super().__init__(
@@ -76,8 +100,11 @@ class ArenaDataset(BasePoseTrajDataset):
         self.mode = mode
         self.sampling_rate = sampling_rate
         self.centeralign = centeralign
+        self.pos_only = pos_only  
+        self.no_pos = no_pos      
         self.sample_frequency = self.DEFAULT_FRAME_RATE  # downsample frames if needed
-
+        self.subsample_keypoints = subsample_keypoints
+        self.max_nan_frac = max_nan_frac
         if augmentations:
             from torchvision import transforms
 
@@ -98,8 +125,7 @@ class ArenaDataset(BasePoseTrajDataset):
         if self.mode == "pretrain" or self.mode == "test":
             self.preprocess()
         elif self.mode == "inference":
-            for sequence in self.sequences:
-                self.interpolate_nans(sequence)
+            self.sequences = [self.interpolate_nans(seq)[::self.sampling_rate] for seq in self.sequences]
             # check no nans           
             for sequence in self.sequences:
                 assert not np.isnan(sequence).any(), "Inference mode does not allow NaN values in the data."
@@ -139,9 +165,6 @@ class ArenaDataset(BasePoseTrajDataset):
         print(f"Data loaded from {self.path}. Number of sequences: {len(self.sequences)}")
 
     def preprocess(self):
-        """
-        Does initial preprocessing on entire dataset.
-        """
         sequences = self.sequences
 
         seq_keypoints = []
@@ -151,63 +174,72 @@ class ArenaDataset(BasePoseTrajDataset):
         sub_seq_length = self.max_keypoints_len
         sliding_window = self.sliding_window
 
-        for seq_ix, vec_seq in enumerate(sequences):
-            # Arena data shape: (num_frames, num_keypoints, kpts_dimensions)
-            # Expected shape: (num_frames, num_individuals, num_keypoints, kpts_dimensions)
-            
-            # Add individuals dimension if not present
+        for seq_ix, vec_seq in tqdm(enumerate(sequences), total=len(sequences), desc="Preprocessing sequences"):
             if vec_seq.ndim == 3:
-                vec_seq = vec_seq[:, np.newaxis, :, :]  # Add individual dimension
-            
-            vec_seq = vec_seq[:: self.sampling_rate]
+                vec_seq = vec_seq[:, np.newaxis, :, :]
+
+            vec_seq = vec_seq[::self.sampling_rate]
             vec_seq = vec_seq.reshape(vec_seq.shape[0], -1)
-            
-            # Pad sequences similar to Shot7M2
-            if sub_seq_length < 120:
-                pad_length = sub_seq_length
-            else:
-                pad_length = 120
-            
-            pad_vec = np.pad(
-                vec_seq,
-                ((pad_length // 2, pad_length - 1 - pad_length // 2), (0, 0)),
-                mode="edge",
-            )
-            
-            seq_keypoints.append(pad_vec)
-            
-            # Store (seq_ix, start_position) tuples, filtering out windows with NaN
+
+            pad_length = min(sub_seq_length, 120)
+            pad_vec = np.pad(vec_seq, ((pad_length // 2, pad_length - 1 - pad_length // 2), (0, 0)), mode="edge")
+
             for i in np.arange(0, len(pad_vec) - sub_seq_length + 1, sliding_window):
                 total_windows += 1
                 window = pad_vec[i : i + sub_seq_length]
-                # Only add this window if it contains no NaN values
-                if not np.isnan(window).any():
-                    keypoints_ids.append((seq_ix, i))
-                    kept_windows += 1
-            sequences[seq_ix] = None  # Free memory
 
-        del self.sequences
+                # 1. Filter windows with too many NaNs
+                if np.isnan(window).mean() > self.max_nan_frac:
+                    continue
+
+                # 2. Interpolate small gaps in-place in the padded sequence
+                self._interpolate_window_inplace(pad_vec, i, i + sub_seq_length)
+
+                keypoints_ids.append((seq_ix, i))
+                kept_windows += 1
+
+            seq_keypoints.append(pad_vec)
+            sequences[seq_ix] = None
 
         self.seq_keypoints = np.array(seq_keypoints, dtype=object)
         self.items = list(np.arange(len(keypoints_ids)))
         self.keypoints_ids = keypoints_ids
-
         self.n_frames = len(self.keypoints_ids)
-        
-        print(f"Preprocessing complete: kept {kept_windows}/{total_windows} windows without NaN ({100*kept_windows/total_windows:.1f}%)")
 
-    def featurise_keypoints(self, keypoints, windowed=True):
-        if self.centeralign:
-            # For centeralign, work with unnormalized data first
-            # The normalization of center will happen inside transform_to_centeralign_components
-            if windowed:
-                keypoints = keypoints.reshape(self.max_keypoints_len, *self.KEYFRAME_SHAPE)
-            else:
-                keypoints = keypoints.reshape(-1, *self.KEYFRAME_SHAPE)
-            keypoints = self.transform_to_centeralign_components(keypoints, center_index=self.BODY_PART_2_INDEX["mouse_center"])
+        print(f"Preprocessing complete: kept {kept_windows}/{total_windows} windows ({100*kept_windows/total_windows:.1f}%)")
+
+    def _subsample_keypoints(self, keypoints):
+        """Keep only a subset of keypoints for a more compact representation."""
+        indices_to_keep = [self.BODY_PART_2_INDEX[name] for name in self.SUBSAMPLED_KEYPOINTS]
+        keypoints = keypoints.reshape(-1, *self.KEYFRAME_SHAPE)
+        keypoints = keypoints[:, :, indices_to_keep, :]
+        return keypoints.reshape(keypoints.shape[0], -1)
+    
+    def featurise_keypoints(self, keypoints):
+        keypoints = self.normalize(keypoints)
+        
+        if self.subsample_keypoints:
+            keypoints = self._subsample_keypoints(keypoints)
+            n_kpts = len(self.SUBSAMPLED_KEYPOINTS)
+            keyframe_shape = (self.NUM_INDIVIDUALS, n_kpts, self.KPTS_DIMENSIONS)
+            center_index = self.SUBSAMPLED_KEYPOINTS.index("mouse_center")
+            tail_base_index = self.SUBSAMPLED_KEYPOINTS.index("tail_base") 
+            neck_index = self.SUBSAMPLED_KEYPOINTS.index("neck")
+
         else:
-            # For non-centeralign, normalize the entire vector
-            keypoints = self.normalize(keypoints)
+            keyframe_shape = self.KEYFRAME_SHAPE
+            center_index = self.BODY_PART_2_INDEX["mouse_center"]
+            tail_base_index = self.BODY_PART_2_INDEX["tail_base"]
+            neck_index = self.BODY_PART_2_INDEX["neck"]
+
+        if self.centeralign:
+            keypoints = keypoints.reshape(-1, *keyframe_shape)
+            keypoints = self.transform_to_centeralign_components(keypoints, center_index=center_index, tail_base_index=tail_base_index, neck_index=neck_index)
+            if self.pos_only:
+                keypoints = keypoints[..., :4]
+            if self.no_pos:
+                keypoints = keypoints[..., 4:]
+
         keypoints = torch.tensor(keypoints, dtype=torch.float32)
         return keypoints
     
@@ -220,8 +252,8 @@ class ArenaDataset(BasePoseTrajDataset):
         inputs = self.prepare_subsequence_sample(subsequence)
         return inputs, []
     
-
-    def interpolate_nans(self, sequence):
+    @staticmethod
+    def interpolate_nans(sequence):
         """Interpolate NaN values in the sequence using linear interpolation."""
         for i in range(sequence.shape[1]):  # Iterate over keypoints
             for j in range(sequence.shape[2]):  # Iterate over dimensions
@@ -235,9 +267,28 @@ class ArenaDataset(BasePoseTrajDataset):
                             np.flatnonzero(not_nans),
                             keypoint_series[not_nans],
                         )
-        return sequence
-    
+        # flatten spatial dims
+        return sequence.reshape(sequence.shape[0], -1)
+
+    def _interpolate_window_inplace(self, sequence: np.ndarray, start: int, end: int) -> None:
+        """Interpolate NaNs in-place on a (T, features) slice of a sequence."""
+        for j in range(sequence.shape[1]):
+            series = sequence[start:end, j]
+            nans = np.isnan(series)
+            if np.any(nans):
+                not_nans = ~nans
+                if np.sum(not_nans) > 1:
+                    series[nans] = np.interp(
+                        np.flatnonzero(nans),
+                        np.flatnonzero(not_nans),
+                        series[not_nans],
+                    )
+    @classmethod
+    def get_skeleton(cls):
+        return [(cls.SUBSAMPLED_KEYPOINTS.index(p1), cls.SUBSAMPLED_KEYPOINTS.index(p2))
+                for p1, p2 in cls.SKELETON_CONNECTIONS]
 def plot_kp_in_2d(keypoints, frame_idxs=np.arange(1,50,1), title=None):
+    import matplotlib.pyplot as plt
     """Plot the keypoints of a specific frame in 2D with skeleton connections."""
     # Define skeleton edges connecting body parts
     skeleton_edges = [
@@ -305,7 +356,8 @@ def plot_kp_in_2d(keypoints, frame_idxs=np.arange(1,50,1), title=None):
 
 def plot_center_trajectory(keypoints, title=None):
     """Plot the trajectory of the center keypoint over time with a color gradient per frame."""
-    
+    from matplotlib.collections import LineCollection
+    import matplotlib.pyplot as plt
     center_idx = ArenaDataset.BODY_PART_2_INDEX["mouse_center"]
 
     x = keypoints[:, center_idx, 0]
@@ -344,3 +396,64 @@ def extract_metadata_from_runid(run_id):
         "trial_id": parts[3],
     }
     return metadata
+
+
+def get_kp_colors(subsampled=False):
+    """Return RGBA colors per keypoint with semantic structure along the body."""
+    import numpy as np
+    import matplotlib.pyplot as plt
+
+    cmap = plt.get_cmap("plasma")
+    n_kpts = ArenaDataset.NUM_KEYPOINTS
+
+    colors = np.zeros((n_kpts, 4))
+    name_to_idx = {name: i for i, name in enumerate(ArenaDataset.STR_BODY_PARTS)}
+
+    # --- Semantic groups ---
+    groups = {
+        "head": [
+            "nose", "left_eye", "right_eye",
+            "left_ear", "right_ear", "left_ear_tip", "right_ear_tip",
+            "head_midpoint", "right_shoulder", "left_shoulder"
+        ],
+        "spine": [
+            "neck", "mid_back", "mouse_center",
+            "mid_backend", "mid_backend2", "mid_backend3",
+            "right_hip", "left_hip", "left_midside", "right_midside"
+        ],
+        "tail": [
+            "tail_base", "tail1", "tail2",
+            "tail3", "tail4", "tail5", "tail_end"
+        ],
+    }
+    if subsampled:
+        groups = {
+            "head": ["nose", "neck", "left_shoulder", "right_shoulder"],
+            "spine": ["mouse_center", "left_hip", "right_hip"],
+            "tail": ["tail_base", "tail3", "tail_end"],
+        }
+        n_kpts = len(ArenaDataset.SUBSAMPLED_KEYPOINTS)
+        name_to_idx = {name: i for i, name in enumerate(ArenaDataset.SUBSAMPLED_KEYPOINTS)}
+
+    # --- Colormap ranges (monotonic head → tail progression) ---
+    group_ranges = {
+        "head": (0.65, 0.70),   # bright yellow (front)
+        "spine": (0.80, 0.85), # orange → pink
+        "tail": (0.85, 0.95),   # purple → magenta gradient
+    }
+
+    # --- Assign colors ---
+    for group, names in groups.items():
+        start, end = group_ranges[group]
+        vals = np.linspace(start, end, len(names))
+
+        for v, name in zip(vals, names):
+            if name in name_to_idx:
+                colors[name_to_idx[name]] = cmap(v)
+
+    # --- Fallback for any missing keypoints ---
+    for i in range(n_kpts):
+        if np.all(colors[i] == 0):
+            colors[i] = cmap(i / max(n_kpts - 1, 1))
+
+    return colors
