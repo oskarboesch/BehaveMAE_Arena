@@ -16,6 +16,7 @@ def get_kinematics(keypoints, mean=True):
     kinematics = {}
     for run, keypoints in tqdm(keypoints.items(), desc="Processing runs"):
         kinematics[run] = {
+            'frame_idx': np.arange(keypoints.shape[0]),
             'center_pos_x': keypoints[:, MAPPING['mouse_center'], 0],
             'center_pos_y': keypoints[:, MAPPING['mouse_center'], 1],
             'speed_x': get_speed(keypoints, dim=0),
