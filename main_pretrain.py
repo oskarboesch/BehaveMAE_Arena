@@ -216,6 +216,27 @@ def get_args_parser():
         "--fp32",
         action="store_true",
     )
+    parser.add_argument(
+        "--pos_only",
+        action="store_true",
+        help="Train on position data only (for Arena dataset)",
+    )
+    parser.add_argument(
+        "--no_pos",
+        action="store_true",
+        help="Train on non-position data only (for Arena dataset)",
+    )
+    parser.add_argument(
+        "--max_nan_frac",
+        type=float,
+        default=0.0,
+        help="Maximum fraction of NaN values allowed in a sample (for Arena dataset)",
+    )
+    parser.add_argument(
+        "--subsample_keypoints",
+        action="store_true",
+        help="Whether to subsample keypoints (for Arena dataset)",
+    )
     parser.set_defaults(fp32=True)
 
     parser.add_argument(
@@ -321,6 +342,10 @@ def main(args):
             augmentations=args.data_augment,
             include_testdata=args.include_test_data,
              centeralign=args.centeralign,
+             pos_only=args.pos_only,
+                no_pos=args.no_pos,
+                max_nan_frac=args.max_nan_frac,
+                subsample_keypoints=args.subsample_keypoints,
         )
         dataset_test = ArenaDataset(
             mode="test",
@@ -330,6 +355,10 @@ def main(args):
             sampling_rate=args.sampling_rate,
             augmentations=None,
             centeralign=args.centeralign,
+            pos_only=args.pos_only,
+            no_pos=args.no_pos,
+            max_nan_frac=args.max_nan_frac,
+            subsample_keypoints=args.subsample_keypoints,
         )
     else:
         print(f"Dataset {args.dataset} unknown...")
