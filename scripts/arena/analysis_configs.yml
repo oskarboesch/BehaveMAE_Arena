@@ -1,0 +1,151 @@
+log_root: logs/arena
+
+slurm:
+  account: cs433
+  qos: normal
+  mem: 128G
+  cpus_per_task: 8
+  gres: gpu:1
+  require_runtime_gpu: True
+  
+base:
+  conda_env: cuml_env
+  dataset: arena
+  embed_type: full_sequence
+  # Data Paths
+  path_to_emb_root: /scratch/izar/boesch/BehaveMAE/outputs/arena
+  analysis_subdir: emb_analysis
+  meta_data_path: /scratch/izar/boesch/data/Arena_Data/hdp_meta_with_family.tsv
+  syllable_labels_path: /scratch/izar/boesch/data/Arena_Data/kpt-Moseq/results.h5
+  keypoints_path: /scratch/izar/boesch/data/Arena_Data/shuffle-3_split-train.npz
+  min_vids_per_strain: 30
+  # Clustering
+  ndim_for_cluster: 50
+  kmeans_ks: [30, 10, 3]
+  kmeans_k_range: [2, 30]
+  gmm_ks_range: [2, 30]
+  gmm_ks: [30, 10, 3]
+  hdbscan_cluster_size_range: [10, 500, 20]
+  raw_hdbscan_cluster_size: [10, 10, 10]
+  umap_kmeans_ks: [30, 10, 3]
+  umap_gmm_ks: [30, 10, 3]
+  umap_hdbscan_cluster_size: [10, 10, 10]
+  tsne_kmeans_ks: [30, 10, 3]
+  tsne_gmm_ks: [30, 10, 3]
+  tsne_hdbscan_cluster_size: [10, 10, 10]
+  # Dimensionality Reduction
+  agg_method: mean
+  pca_dims: 50
+  pca_batch_size: 256
+  n_windows_per_run_for_metadata: -1
+  max_n_samples_for_syllable_analysis: 10000
+  max_nan_ratio_per_window: 0.2
+  base_window_size: 750
+  base_window_stride: 750
+  n_windows_per_run_base: -1
+  n_windows_per_run_for_clustering: -1
+  seed: 42
+
+
+flags: []
+
+experiments:
+  - name: experiment1
+    kmeans_ks: [2, 2, 2]
+    gmm_ks: [2, 2, 2]
+    raw_hdbscan_cluster_size: [10, 10, 10]
+    umap_kmeans_ks: [2, 2, 2]
+    umap_gmm_ks: [2, 2, 2]
+    umap_hdbscan_cluster_size: [10, 10, 10]
+    tsne_kmeans_ks: [2, 2, 2]
+    tsne_gmm_ks: [2, 2, 2]
+    tsne_hdbscan_cluster_size: [10, 10, 10]
+
+  - name: experiment1
+    embed_type: no_bootstrap
+    kmeans_ks: [2, 2, 2]
+    gmm_ks: [2, 2, 2]
+    raw_hdbscan_cluster_size: [10, 10, 10]
+    umap_kmeans_ks: [2, 2, 2]
+    umap_gmm_ks: [2, 2, 2]
+    umap_hdbscan_cluster_size: [10, 10, 10]
+    tsne_kmeans_ks: [2, 2, 2]
+    tsne_gmm_ks: [2, 2, 2]
+    tsne_hdbscan_cluster_size: [10, 10, 10]
+
+  # - name: experiment1
+  #   embed_type: windowed
+  #   pca_dims: 100 # pca is already done with 64 dims no need to do it again
+
+  - name: experiment1
+    embed_type: ts2vec
+    path_to_emb_root: /scratch/izar/boesch/ts2vec/outputs/arena/
+    pca_dims: 100
+    kmeans_ks: [3, 6, 2]
+    gmm_ks: [2, 2, 2]
+    raw_hdbscan_cluster_size: [10, 10, 10]
+    tsne_kmeans_ks: [17, 3, 2]
+    tsne_gmm_ks: [4, 3, 4]
+    tsne_hdbscan_cluster_size: [10, 10, 10]
+
+  - name: experiment1
+    embed_type: ts2vec
+    path_to_emb_root: /scratch/izar/boesch/ts2vec/outputs/arena/
+    pca_dims: 100
+    base_window_size: 50
+    base_window_stride: 50
+    kmeans_ks: [3, 6, 2]
+    gmm_ks: [2, 2, 2]
+    raw_hdbscan_cluster_size: [10, 10, 10]
+    tsne_kmeans_ks: [3, 3, 3]
+    tsne_gmm_ks: [3, 3, 3]
+    tsne_hdbscan_cluster_size: [10, 10, 10]
+
+  - name: experiment1
+    embed_type: ts2vec
+    path_to_emb_root: /scratch/izar/boesch/ts2vec/outputs/arena/
+    pca_dims: 100
+    base_window_size: 10
+    base_window_stride: 10
+    kmeans_ks: [3, 6, 2]
+    gmm_ks: [2, 2, 2]
+    raw_hdbscan_cluster_size: [10, 10, 10]
+    tsne_kmeans_ks: [3, 3, 3]
+    tsne_gmm_ks: [3, 3, 3]
+    tsne_hdbscan_cluster_size: [10, 10, 10]
+
+  - name: experiment1
+    base_window_size: 10
+    base_window_stride: 10
+
+
+  - name: experiment1
+    base_window_size: 50
+    base_window_stride: 50
+
+
+  # - name: experiment2
+
+  # # - name: experiment3
+
+  # - name: experiment4
+
+  # - name: experiment5
+  
+  # - name: experiment7
+
+  # - name: experiment8
+
+  # - name: experiment9
+  
+  # - name: experiment10
+
+  # - name: experiment11
+
+  # - name: experiment12
+
+
+
+
+
+  

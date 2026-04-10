@@ -1,0 +1,111 @@
+base:
+  dataset: arena
+  path_to_data_dir: /scratch/izar/boesch/data/Arena_Data/shuffle-3_split-train.npz
+  batch_size: 512
+  model: hbehavemae
+  input_size: 1 54
+  stages: 2 3 4
+  q_strides: 5,1,1;15,1,1 # (5*10 frames = 2s) for the first stage, 30s (15*5*10 frames = 30s) for the second stage, 50s (25*5*10 frames = 50s) for the third stage
+  mask_unit_attn: "True True True"
+  patch_kernel: 10 1 54 # 400 ms 0.4 * 25 frames = 10 frames
+  init_embed_dim: 96
+  init_num_heads: 2
+  out_embed_dims: 64 64 64
+  epochs: 200
+  num_frames: 3750 # 2:30 minutes at 25 fps (5*mu -> 0.8 mask ratio works)
+  decoding_strategy: multi 
+  decoder_embed_dim: 128
+  decoder_depth: 1
+  decoder_num_heads: 1
+  num_workers: 4
+  sampling_rate: 1
+  sliding_window: 17
+  blr: 1.6e-4
+  warmup_epochs: 40
+  masking_strategy: random
+  mask_ratio: 0.75
+  clip_grad: 0.02
+  checkpoint_period: 20
+  norm_loss: False
+  seed: 0
+
+
+flags:
+  - pin_mem
+  - distributed
+
+experiments:
+  # - name: experiment1
+
+  # - name: experiment2
+  #   mask_unit_attn: "True False False"
+
+  # - name: experiment3
+  #   decoding_strategy: single
+
+
+  # - name: experiment4
+  #   centeralign: ~          # ~ means null/flag in yaml
+  #   input_size: 1 56
+  #   patch_kernel: 10 1 56
+
+  # - name: experiment5
+  #   centeralign: ~
+  #   input_size: 1 56
+  #   patch_kernel: 10 1 2
+  #   q_strides: 5,1,28;15,1,1
+  #   batch_size: 128
+  #   checkpoint_period: 5
+
+  # - name: experiment6
+  #   centeralign: ~
+  #   input_size: 1 56
+  #   patch_kernel: 10 1 2
+  #   q_strides: 5,1,1;15,1,28
+  #   out_embed_dims: 64 64 64
+  #   stages: 2 2 2
+  #   mask_unit_attn: "True False False"
+  #   checkpoint_period: 5
+  #   batch_size: 128
+
+  # - name: experiment7
+  #   centeralign: ~
+  #   pos_only: ~
+  #   input_size: 1 4
+  #   patch_kernel: 10 1 4
+
+  # - name: experiment8
+  #   centeralign: ~
+  #   no_pos: ~
+  #   input_size: 1 52
+  #   patch_kernel: 10 1 52
+
+  # - name: experiment9
+  #   centeralign: ~
+  #   no_pos: ~
+  #   input_size: 1 52
+  #   patch_kernel: 10 1 52
+  #   max_nan_frac: 0.1
+  
+  # - name: experiment10
+  #   centeralign: ~
+  #   no_pos: ~
+  #   input_size: 1 52
+  #   patch_kernel: 10 1 52
+  #   max_nan_frac: 0.5
+
+  # - name: experiment11
+  #   centeralign: ~
+  #   no_pos: ~
+  #   input_size: 1 18
+  #   patch_kernel: 10 1 18
+  #   subsample_keypoints:  ~
+
+  # - name: experiment12
+  #   centeralign: ~
+  #   no_pos: ~
+  #   input_size: 1 18
+  #   patch_kernel: 10 1 18
+  #   subsample_keypoints:  ~
+  #   max_nan_frac: 0.1
+

@@ -1,0 +1,24 @@
+
+experiment=experiment1
+
+python run_extract_emb.py \
+    --path_to_data_dir /scratch/izar/boesch/data/Shot7M2/test/test_dictionary_poses.npy  \
+    --dataset shot7m2 \
+    --batch_size 1 \
+    --model gen_hiera \
+    --input_size 1 72 \
+    --stages 2 3 4 \
+    --q_strides "2,1,4;2,1,6" \
+    --mask_unit_attn True False False \
+    --patch_kernel 2 1 3 \
+    --init_embed_dim 96 \
+    --init_num_heads 2 \
+    --out_embed_dims 78 128 256 \
+    --num_workers 8 \
+    --output_dir /scratch/izar/boesch/BehaveMAE/outputs/shot7m2/experiment1
+
+
+cd hierAS-eval
+    
+nr_submissions=$(ls /scratch/izar/boesch/BehaveMAE/outputs/shot7m2/${experiment}/test_submission_* 2>/dev/null | wc -l)
+files=($(seq 0 $((nr_submissions - 1))))
