@@ -1,0 +1,22 @@
+name: cuml_env
+channels:
+  - rapidsai
+  - nvidia
+  - pytorch
+  - conda-forge
+dependencies:
+  - python=3.10
+  - cuda-version=12.2          # pin CUDA explicitly first
+  - cuml=24.04                  # cuML only, not full rapids=24.04
+  - pytorch
+  - torchvision
+  - pytorch-cuda=12.1           # match the CUDA pin above
+  - numpy
+  - matplotlib
+  - seaborn
+  - scikit-learn
+  - h5py
+  - tqdm
+  - pip
+  - pip:
+    - pyro-ppl                  # pyro resolves much better via pip
