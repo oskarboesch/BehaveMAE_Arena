@@ -309,6 +309,11 @@ def analyze_cluster_labels(cluster_labels, flat_index_map, metadata, kinematics,
 
     with open(os.path.join(output_dir, "cluster_transitions.json"), "w") as f:
         json.dump(transition_results, f, indent=4)
+
+    cluster_results = predict_from_cluster_populations(df, metadata) if valid_meta_cols else {}
+    with open(os.path.join(output_dir, "cluster_population_predictions.json"), "w") as f:
+        json.dump(cluster_results, f, indent=4)
+    print(f"Saved cluster population prediction results to {output_dir}")
         
     
     return {
@@ -316,3 +321,58 @@ def analyze_cluster_labels(cluster_labels, flat_index_map, metadata, kinematics,
         "kinematics": kinematics_results,
         "transitions": transition_results
     }
+
+
+def predict_from_cluster_populations(cluster_df, metadata):
+    from ..utils.run_kfold_cv import run_kfold_cv
+    from sklearn.pipeline import Pipeline
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.dummy import DummyClassifier
+
+    x_df = cluster_df.copy()
+    x_df = x_df.groupby('run_id')['cluster'].value_counts(normalize=True).unstack(fill_value=0)
+    x_df.columns = [f"cluster_{c}" for c in x_df.columns]
+    x_df = x_df.reset_index()
+
+    y_df = metadata.set_index('run_id').loc[x_df['run_id']].reset_index()
+    groups = y_df['animal_id'].values
+    cluster_results = {}
+
+    for meta_var in y_df.columns:
+        if meta_var in ("run_id", "trial_id", "animal_id"):
+            continue
+
+        X = x_df.drop(columns=['run_id']).values
+        y = y_df[meta_var].values
+        current_groups = groups.copy()
+
+        if meta_var == "strain":
+            valid_strains = (
+                metadata["strain"]
+                .value_counts()
+                .pipe(lambda s: s[s >= 30])
+                .index.tolist()
+            )
+            valid_strains = [s for s in valid_strains if s != "B6CAST-129SPWK-F2"]
+            valid_indices = [i for i, label in enumerate(y) if label in valid_strains]
+            if len(valid_indices) == 0:
+                print(f"No valid samples for strain filtering, skipping.")
+                continue
+            X = X[valid_indices]
+            y = y[valid_indices]
+            current_groups = current_groups[valid_indices]
+
+        print(f"Predicting {meta_var} from cluster populations")
+
+        model = Pipeline([
+            ("scaler", StandardScaler()),
+            ("clf", LogisticRegression(max_iter=1000, C=1.0, class_weight="balanced", random_state=42))
+        ])
+        dummy_model = DummyClassifier(strategy="most_frequent")
+        run_kfold_cv(
+            results=cluster_results, var=meta_var, is_classification=True, seed=42,
+            X=X, y=y, groups=current_groups, model=model, dummy_model=dummy_model
+        )
+
+    return cluster_results
