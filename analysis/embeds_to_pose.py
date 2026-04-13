@@ -407,10 +407,12 @@ def plot_similarity_dendrogram(seq_list, save_path, target_length=None):
             pad = np.zeros(target_length)
             pad[:len(f)] = f
             normalized.append(pad)
-    flattened = np.stack(normalized, axis=0)  # (n_seqs, target_length) — guaranteed 2D
-    distance_matrix = pdist(flattened, metric='euclidean')
-    Z = linkage(distance_matrix, method='ward')
+    flattened = np.stack(normalized, axis=0)  # (n_seqs, target_length)
 
+    condensed = pdist(flattened, metric='euclidean')
+    condensed = np.nan_to_num(condensed, nan=0.0, posinf=0.0, neginf=0.0)
+
+    Z = linkage(condensed, method='ward')  # ← condensed 1D vector directly
     plt.figure(figsize=(10, 5))
     dendrogram(Z)
     plt.title("Dendrogram of Cluster Sequence Similarity")
