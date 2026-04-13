@@ -45,11 +45,11 @@ def modeling(embeddings, metadata, kinematics, syllable_labels, windowed_token_s
             if meta_var == "run_id" or meta_var == "trial_id" or meta_var == "animal_id": # skip animal_id for now TODO
                 continue
             print(f"Running analysis for {layer_key} - {meta_var}")
-            X, y, groups, X_plot, y_plot = preprocess_metadata(args, embeddings_dict, metadata, meta_var, windowed_token_shape)
+            X, y, groups, run_ids = preprocess_metadata(args, embeddings_dict, metadata, meta_var, windowed_token_shape)
             if len(X) < 10:
-                plot_2D(X_plot, y_plot, is_discrete=True, dims=(0,1), title=f"{meta_var} - {layer_key}", output_path=os.path.join(meta_fig_dir, f"{meta_var}_{layer_key}.png"), color_map=_cluster_color_map(y_plot, palette_name=get_category_palette(meta_var)))
+                plot_2D(X, y, is_discrete=True, dims=(0,1), title=f"{meta_var} - {layer_key}", output_path=os.path.join(meta_fig_dir, f"{meta_var}_{layer_key}.png"), color_map=_cluster_color_map(y, palette_name=get_category_palette(meta_var)))
                 print(f"Not enough samples for {layer_key} - {meta_var}, skipping.")
-                del X, y, groups, X_plot, y_plot
+                del X, y, groups, run_ids
                 continue
             if layer_key == "layer_0":  # only plot for the first layer 
                 plot_class_distribution(y, meta_var, output_dir)
@@ -59,11 +59,11 @@ def modeling(embeddings, metadata, kinematics, syllable_labels, windowed_token_s
                 ("clf", LogisticRegression(max_iter=1000, C=LOGREG_C, class_weight="balanced", random_state=args.seed))
             ])
             dummy_model = DummyClassifier(strategy="most_frequent")
-            run_kfold_cv(layer_meta_results, meta_var, model, dummy_model, X, y, groups=groups, is_classification=True, seed=args.seed)
+            run_kfold_cv(layer_meta_results, meta_var, model, dummy_model, X, y, groups=groups, is_classification=True, seed=args.seed, run_ids=run_ids)
             dims = get_best_dims(layer_meta_results[meta_var], n_plot_features=X.shape[1])
-            plot_2D(X_plot, y_plot, is_discrete=True, dims=dims, title=f"{meta_var} - {layer_key}", output_path=os.path.join(meta_fig_dir, f"{meta_var}_{layer_key}.png"), color_map=_cluster_color_map(y_plot, palette_name=get_category_palette(meta_var)))
+            plot_2D(X, y, is_discrete=True, dims=dims, title=f"{meta_var} - {layer_key}", output_path=os.path.join(meta_fig_dir, f"{meta_var}_{layer_key}.png"), color_map=_cluster_color_map(y, palette_name=get_category_palette(meta_var)))
             # get the dimensions with the highest absolute coefficient values and plot them
-            del X, y, groups, X_plot, y_plot, model, dummy_model, dims
+            del X, y, groups, run_ids, model, dummy_model, dims
 
 
         if windowed_token_shape[0] == -1:

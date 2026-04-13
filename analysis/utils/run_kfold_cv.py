@@ -1,6 +1,7 @@
 from sklearn.model_selection import StratifiedGroupKFold, GroupKFold
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import accuracy_score, f1_score
 import numpy as np
+import pandas as pd
 from .get_stats_report import get_stats_report
 
 MAX_STATS_FEATURES_CLASSIFICATION = 1000
@@ -27,31 +28,62 @@ def _should_skip_stats_report(X, is_classification):
 
     return False, None
 
-def run_kfold_cv(results, var, model, dummy_model, X, y, groups=None, is_classification=True, seed=42):
+def run_kfold_cv(results, var, model, dummy_model, X, y, groups=None, is_classification=True, seed=42, run_ids=None):
     if is_classification:
         if var == "syllable":
             cv = GroupKFold(n_splits=5, shuffle=True, random_state=seed) # impossible to stratify with syllable labels, but we want to keep samples from the same animal together in the same fold to avoid data leakage
         else:
             cv = StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=seed)
-        score_func = accuracy_score
+        
         scores = []
         train_scores = []
         dummy_model_scores = []
+        f1_scores = []
+        f1_seq_scores = []
         print(f"Running StratifiedGroupKFold CV for variable '{var}' with {cv.get_n_splits(groups=groups)} splits.")
         print(f"X shape : {X.shape}")
         unique, counts = np.unique(y, return_counts=True)
         print(f"Class distribution in y: {dict(zip(unique, counts))}")
+        
         for fold, (train_idx, test_idx) in enumerate(cv.split(X, y, groups=groups)):
             model.fit(X[train_idx], y[train_idx])
             dummy_model.fit(X[train_idx], y[train_idx])
+
+            # Window-level predictions
             y_pred = model.predict(X[test_idx])
             y_dummy_pred = dummy_model.predict(X[test_idx])
-            if is_classification:
-                score = score_func(y[test_idx], y_pred)
-                dummy_score = score_func(y[test_idx], y_dummy_pred)
-            else:
-                score = score_func(y[test_idx], y_pred)
-                dummy_score = score_func(y[test_idx], y_dummy_pred)
+            
+            score = accuracy_score(y[test_idx], y_pred)
+            dummy_score = accuracy_score(y[test_idx], y_dummy_pred)
+            
+            # F1 score at window level
+            f1_window = f1_score(y[test_idx], y_pred, average='macro' if len(unique) > 2 else 'binary', pos_label=unique[1] if len(unique) == 2 else 1)
+            f1_scores.append(f1_window)
+
+            # Sequence-level predictions if run_ids are provided
+            if run_ids is not None:
+                # Get probas to average predictions per run_id
+                # (Support model that has predict_proba)
+                test_run_ids = run_ids[test_idx]
+                if hasattr(model, "predict_proba"):
+                    y_probas = model.predict_proba(X[test_idx])
+                    
+                    df_preds = pd.DataFrame(y_probas, columns=model.classes_)
+                    df_preds['run_id'] = test_run_ids
+                    df_preds['y_true'] = y[test_idx]
+                    
+                    # Group by run_id
+                    grouped = df_preds.groupby('run_id')
+                    
+                    # Average probabilities
+                    mean_probas = grouped[model.classes_].mean()
+                    y_true_seq = grouped['y_true'].first().values
+                    
+                    # Predict classes based on max average proba
+                    y_pred_seq = model.classes_[np.argmax(mean_probas.values, axis=1)]
+                    
+                    f1_seq = f1_score(y_true_seq, y_pred_seq, average='macro' if len(unique) > 2 else 'binary', pos_label=unique[1] if len(unique) == 2 else 1)
+                    f1_seq_scores.append(f1_seq)
 
             scores.append(score)
             train_scores.append(model.score(X[train_idx], y[train_idx]))
@@ -61,6 +93,8 @@ def run_kfold_cv(results, var, model, dummy_model, X, y, groups=None, is_classif
         scores = [0]
         train_scores = [0]
         dummy_model_scores = [0]
+        f1_scores = []
+        f1_seq_scores = []
 
     # Statsmodels can fail on ill-conditioned folds/data (e.g. perfect separation,
     # non-invertible Hessian). Keep pipeline alive and store CV metrics anyway.
@@ -100,7 +134,7 @@ def run_kfold_cv(results, var, model, dummy_model, X, y, groups=None, is_classif
     if stats_error is not None:
         print(f"Warning: stats report unavailable for '{var}': {stats_error}")
 
-    results[var] = {
+    res_dict = {
         "train_accuracy": np.mean(train_scores),
         "accuracy": np.mean(scores),
         "std": np.std(scores),
@@ -111,3 +145,10 @@ def run_kfold_cv(results, var, model, dummy_model, X, y, groups=None, is_classif
         "pvalues": pvalues,
         "stats_error": stats_error,
     }
+    if is_classification:
+        res_dict["f1_window"] = np.mean(f1_scores) if f1_scores else None
+        res_dict["f1_seq"] = np.mean(f1_seq_scores) if f1_seq_scores else None
+        rest_dict["f1_window_std"] = np.std(f1_scores) if f1_scores else None
+        res_dict["f1_seq_std"] = np.std(f1_seq_scores) if f1_seq_scores else None
+
+    results[var] = res_dict
