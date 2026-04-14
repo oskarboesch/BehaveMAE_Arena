@@ -115,7 +115,6 @@ def _plot_keypoint_trajectory(seq, skeleton, kp_colors, save_path, is_centroid):
 
     fig, ax = plt.subplots(figsize=(6, 6))
 
-    # Fonction pour fondre une couleur avec le blanc (simule l'alpha en 100% opaque)
     def blend_with_white(color, a):
         return tuple(a * val + (1 - a) * 1.0 for val in mc.to_rgb(color))
 
@@ -184,6 +183,7 @@ def _plot_position_heatmaps(cluster_center_frames, keypoints, window_size, token
         return
     geom_by_stem = load_arena_geometries()
     os.makedirs(output_dir, exist_ok=True)
+    save_dir = None
 
     for layer_key, alg_dict in cluster_center_frames.items():
         token_shape = token_shapes[int(layer_key.split("_")[-1])]
@@ -275,7 +275,8 @@ def _plot_position_heatmaps(cluster_center_frames, keypoints, window_size, token
             save_path = os.path.join(save_dir, f"heatmap_{alg_name}.png")
             fig.savefig(save_path, dpi=200)
             plt.close(fig)
-        print(f"Saved heatmap plots for {layer_key} at {save_dir}")
+        if save_dir is not None:
+            print(f"Saved heatmap plots for {layer_key} at {save_dir}")
 
 
 def get_arena_geom_for_run(run_id, geom_by_stem):
