@@ -289,12 +289,12 @@ def embedding_analysis(args):
     title_print("Raw Embeddings Analysis")
     title_print("Cluster Analysis", n=10)
 
-    raw_clustroids_idxs = cluster_analysis(args=args, embeddings=embeddings_windowed, 
-                                           token_shapes=windowed_token_shapes, true_labels=true_labels, 
-                                           true_label_names=true_label_names, metadata=metadata, kinematics=kinematics, 
-                                           syllable_labels=syllable_labels, data_type="raw")
-    embeds_to_pose(embeddings=embeddings, clustroids_idxs=raw_clustroids_idxs, layer_window_maps=raw_layer_window_maps, 
-                   window_size=args.base_window_size, token_shapes=raw_token_shapes, keypoints=keypoints, output_dir=args.output_dir, data_type="raw")
+    # raw_clustroids_idxs = cluster_analysis(args=args, embeddings=embeddings_windowed, 
+    #                                        token_shapes=windowed_token_shapes, true_labels=true_labels, 
+    #                                        true_label_names=true_label_names, metadata=metadata, kinematics=kinematics, 
+    #                                        syllable_labels=syllable_labels, data_type="raw")
+    # embeds_to_pose(embeddings=embeddings, clustroids_idxs=raw_clustroids_idxs, layer_window_maps=raw_layer_window_maps, 
+    #                window_size=args.base_window_size, token_shapes=raw_token_shapes, keypoints=keypoints, output_dir=args.output_dir, data_type="raw")
     
     title_print("Modeling", n=10)
     modeling(embeddings=embeddings_windowed, metadata=metadata, kinematics=kinematics, syllable_labels=syllable_labels, 
@@ -309,9 +309,9 @@ def embedding_analysis(args):
     gc.collect()
 
     title_print("UMAP Embeddings Analysis")
-    title_print("Cluster Analysis", n=10)
-    umap_clustroids_idxs = cluster_analysis(args=args, embeddings=umap_embeddings, token_shapes=windowed_token_shapes, true_labels=true_labels, true_label_names=true_label_names, metadata=metadata, kinematics=kinematics, syllable_labels=syllable_labels, data_type="umap")
-    embeds_to_pose(embeddings=embeddings, clustroids_idxs=umap_clustroids_idxs, layer_window_maps=raw_layer_window_maps, window_size=args.base_window_size, token_shapes=raw_token_shapes, keypoints=keypoints, output_dir=args.output_dir, data_type="umap")
+    # title_print("Cluster Analysis", n=10)
+    # umap_clustroids_idxs = cluster_analysis(args=args, embeddings=umap_embeddings, token_shapes=windowed_token_shapes, true_labels=true_labels, true_label_names=true_label_names, metadata=metadata, kinematics=kinematics, syllable_labels=syllable_labels, data_type="umap")
+    # embeds_to_pose(embeddings=embeddings, clustroids_idxs=umap_clustroids_idxs, layer_window_maps=raw_layer_window_maps, window_size=args.base_window_size, token_shapes=raw_token_shapes, keypoints=keypoints, output_dir=args.output_dir, data_type="umap")
     title_print("Modeling", n=10)
     modeling(embeddings=umap_embeddings, metadata=metadata, kinematics=kinematics, syllable_labels=syllable_labels, windowed_token_shapes=windowed_token_shapes, raw_token_shapes=raw_token_shapes, args=args, layer_window_maps=raw_layer_window_maps, data_type="umap")
 
@@ -320,9 +320,9 @@ def embedding_analysis(args):
     gc.collect()
 
     title_print("TSNE Embeddings Analysis")
-    title_print("Cluster Analysis", n=10)
-    tsne_clustroids_idxs = cluster_analysis(args=args, embeddings=tsne_embeddings, token_shapes=windowed_token_shapes, true_labels=true_labels, true_label_names=true_label_names, metadata=metadata, kinematics=kinematics, syllable_labels=syllable_labels, data_type="tsne")
-    embeds_to_pose(embeddings=embeddings, clustroids_idxs=tsne_clustroids_idxs, layer_window_maps=raw_layer_window_maps, window_size=args.base_window_size, token_shapes=raw_token_shapes, keypoints=keypoints, output_dir=args.output_dir, data_type="tsne")
+    # title_print("Cluster Analysis", n=10)
+    # tsne_clustroids_idxs = cluster_analysis(args=args, embeddings=tsne_embeddings, token_shapes=windowed_token_shapes, true_labels=true_labels, true_label_names=true_label_names, metadata=metadata, kinematics=kinematics, syllable_labels=syllable_labels, data_type="tsne")
+    # embeds_to_pose(embeddings=embeddings, clustroids_idxs=tsne_clustroids_idxs, layer_window_maps=raw_layer_window_maps, window_size=args.base_window_size, token_shapes=raw_token_shapes, keypoints=keypoints, output_dir=args.output_dir, data_type="tsne")
     title_print("Modeling", n=10)
     modeling(embeddings=tsne_embeddings, metadata=metadata, kinematics=kinematics, syllable_labels=syllable_labels, windowed_token_shapes=windowed_token_shapes, raw_token_shapes=raw_token_shapes, args=args, layer_window_maps=raw_layer_window_maps, data_type="tsne")
 
